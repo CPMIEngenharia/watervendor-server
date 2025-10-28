@@ -46,7 +46,7 @@ const payment = new Payment(client);
 console.log('🔌 Tentando conectar ao Broker MQTT...');
 const mqttClient = mqtt.connect(MQTT_BROKER_URL, {
     username: MQTT_USERNAME,
-    password: MQTT_PASSWORD
+    password: MQTT_PASSWORD,
     clientId: 'servidor_watervendor_UNILEVE'
 });
 
