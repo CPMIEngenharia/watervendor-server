@@ -1,19 +1,14 @@
-// =================================================================
-// ⚠️ ATENÇÃO: COLE O CÓDIGO INTEIRO AQUI ⚠️
-// (O mesmo código da nossa mensagem anterior, com os logs detalhados)
-// =================================================================
 const express = require('express');
 const bodyParser = require('body-parser');
-const mercadopago = require('mercadopago');
+// 1. MUDANÇA: Importamos as classes específicas da nova biblioteca
+const { MercadoPagoConfig, Payment } = require('mercadopago');
 const mqtt = require('mqtt');
 
 const app = express();
-// O Render define a porta pela variável de ambiente PORT
 const PORT = process.env.PORT || 3000;
 
 // =================================================================
 // ⚠️ ATENÇÃO: PREENCHA SUAS CREDENCIAIS CORRETAMENTE ⚠️
-// (Verifique se estas estão corretas)
 // =================================================================
 
 // --- CREDENCIAIS DO MERCADO PAGO ---
@@ -31,11 +26,15 @@ const MQTT_TOPIC_COMANDO = 'maquina_agua/pagamento'; // CONFIRME SE ESTE É O NO
 // FIM DAS CONFIGURAÇÕES
 // =================================================================
 
-
-// --- Configuração do Mercado Pago ---
-mercadopago.configure({
-    access_token: MP_ACCESS_TOKEN
+// 2. MUDANÇA: Nova forma de configurar o cliente
+console.log('🔌 Configurando cliente Mercado Pago (SDK v3)...');
+const client = new MercadoPagoConfig({
+    accessToken: MP_ACCESS_TOKEN
 });
+
+// Criamos uma instância de Pagamento com o cliente
+const payment = new Payment(client);
+
 
 // --- Configuração do Cliente MQTT ---
 console.log('🔌 Tentando conectar ao Broker MQTT...');
@@ -57,7 +56,7 @@ app.use(bodyParser.json());
 
 // --- Rota de "Saúde" (Health Check) ---
 app.get('/', (req, res) => {
-    res.send('Servidor da Máquina de Água (v2.0 com logs) está no ar e operante.');
+    res.send('Servidor da Máquina de Água (v3.0 com logs) está no ar e operante.');
 });
 
 
@@ -67,12 +66,10 @@ app.get('/', (req, res) => {
 app.post('/notificacao-mp', async (req, res) => {
     
     console.log('--- NOTIFICAÇÃO DO MP RECEBIDA ---');
-    // Log completo da notificação para depuração:
     console.log('Conteúdo:', JSON.stringify(req.body, null, 2));
 
     const notificacao = req.body;
 
-    // 1. FILTRAR O TIPO DE NOTIFICAÇÃO
     if (notificacao.topic === 'payment' || notificacao.type === 'payment') {
         
         const paymentId = notificacao.data?.id || notificacao.resource; 
@@ -85,24 +82,28 @@ app.post('/notificacao-mp', async (req, res) => {
         console.log(`🔎 Notificação de pagamento recebida. ID: ${paymentId}. Buscando detalhes na API do MP...`);
 
         try {
-            // 2. BUSCAR OS DETALHES DO PAGAMENTO
-            const payment = await mercadopago.payment.get(paymentId);
-            
-            if (!payment || !payment.body) {
-                console.error(`❌ Falha grave ao buscar dados do pagamento ${paymentId} na API do MP.`);
-                return res.sendStatus(500); 
+            // A API v3 espera que o ID seja um número.
+            const numericPaymentId = Number(paymentId);
+            if (isNaN(numericPaymentId)) {
+                console.error(`❌ ID do pagamento não é um número: ${paymentId}`);
+                return res.sendStatus(200); // Responde 200 pro MP não insistir
             }
 
-            const paymentDetails = payment.body;
-            
-            console.log(`ℹ️ DETALHES DO PAGAMENTO: ID: ${paymentId} | STATUS: ${paymentDetails.status} | TIPO: ${paymentDetails.payment_type_id}`);
+            // 3. MUDANÇA: Nova forma de buscar o pagamento
+            const paymentDetails = await payment.get({ id: numericPaymentId });
 
-            // 3. VERIFICAR SE O PAGAMENTO ESTÁ APROVADO ('approved')
+            if (!paymentDetails) {
+                console.error(`❌ Falha grave ao buscar dados do pagamento ${paymentId} na API do MP. Resposta vazia.`);
+                return res.sendStatus(500); 
+            }
+            
+            // Os detalhes agora vêm direto no objeto, não em "payment.body"
+            console.log(`ℹ️ DETALHES DO PAGAMENTO: ID: ${paymentDetails.id} | STATUS: ${paymentDetails.status} | TIPO: ${paymentDetails.payment_type_id}`);
+
             if (paymentDetails.status === 'approved') {
                 
                 console.log('✅ PAGAMENTO APROVADO! Preparando para enviar comando MQTT...');
                 
-                // 4. ENVIAR COMANDO PARA O ESP32 VIA MQTT
                 const mensagemMQTT = 'LIBERAR_AGUA';
                 
                 mqttClient.publish(MQTT_TOPIC_COMANDO, mensagemMQTT, (err) => {
@@ -121,6 +122,7 @@ app.post('/notificacao-mp', async (req, res) => {
 
         } catch (error) {
             console.error(`💥 Erro ao processar o pagamento ${paymentId}:`, error.message);
+            console.error(error); // Log completo do erro
         }
     
     } else if (notificacao.topic === 'merchant_order') {
