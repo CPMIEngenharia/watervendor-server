@@ -1,88 +1,139 @@
+// =================================================================
+// ⚠️ ATENÇÃO: COLE O CÓDIGO INTEIRO AQUI ⚠️
+// (O mesmo código da nossa mensagem anterior, com os logs detalhados)
+// =================================================================
 const express = require('express');
+const bodyParser = require('body-parser');
+const mercadopago = require('mercadopago');
 const mqtt = require('mqtt');
-const axios = require('axios'); // Biblioteca para fazer a chamada extra ao MP
+
 const app = express();
-const PORT = 3000;
+// O Render define a porta pela variável de ambiente PORT
+const PORT = process.env.PORT || 3000;
 
-// --- SUAS INFORMAÇÕES (Mantenha igual) ---
-const MQTT_HOST = 'd848ae40758c4732b9333f823b832326.s1.eu.hivemq.cloud';
-const MQTT_PORT = '8883';
-const MQTT_USER = 'watervendor01';
-const MQTT_PASS = 'Water2025';
-const MP_ACCESS_TOKEN = 'APP_USR-2337638380276117-092714-fcb4c7f0435c786f6c58a959e3dac448-1036328569';
+// =================================================================
+// ⚠️ ATENÇÃO: PREENCHA SUAS CREDENCIAIS CORRETAMENTE ⚠️
+// (Verifique se estas estão corretas)
+// =================================================================
 
-// --- TÓPICOS MQTT ---
-const MQTT_BASE_TOPIC = 'watervendor'; // Tópico base
+// --- CREDENCIAIS DO MERCADO PAGO ---
+const MP_ACCESS_TOKEN = 'SEU_ACCESS_TOKEN_DE_PRODUCAO_AQUI';
 
-// --- CONEXÃO COM O BROKER MQTT ---
-const client = mqtt.connect(`mqtts://${MQTT_HOST}:${MQTT_PORT}`, {
-  username: MQTT_USER,
-  password: MQTT_PASS,
+// --- CREDENCIAIS DO MQTT ---
+const MQTT_BROKER_URL = 'mqtt://SEU_BROKER_URL'; // Ex: 'mqtt://broker.hivemq.com'
+const MQTT_USERNAME = 'SEU_USUARIO_MQTT'; // Deixe "" se não tiver
+const MQTT_PASSWORD = 'SUA_SENHA_MQTT';   // Deixe "" se não tiver
+
+// --- TÓPICO MQTT ---
+const MQTT_TOPIC_COMANDO = 'maquina_agua/pagamento'; // CONFIRME SE ESTE É O NOME DO TÓPICO
+
+// =================================================================
+// FIM DAS CONFIGURAÇÕES
+// =================================================================
+
+
+// --- Configuração do Mercado Pago ---
+mercadopago.configure({
+    access_token: MP_ACCESS_TOKEN
 });
 
-client.on('connect', () => console.log('Servidor conectado ao Broker MQTT com sucesso!'));
-client.on('error', (err) => console.error('Erro de conexão com o Broker MQTT:', err));
+// --- Configuração do Cliente MQTT ---
+console.log('🔌 Tentando conectar ao Broker MQTT...');
+const mqttClient = mqtt.connect(MQTT_BROKER_URL, {
+    username: MQTT_USERNAME,
+    password: MQTT_PASSWORD
+});
 
-app.use(express.json());
+mqttClient.on('connect', () => {
+    console.log('✅ Conectado ao Broker MQTT com sucesso.');
+});
 
-app.get('/', (req, res) => res.send('Servidor WaterVendor está no ar!'));
+mqttClient.on('error', (err) => {
+    console.error('❌ Erro na conexão MQTT:', err);
+});
 
-// Rota que recebe as notificações do Mercado Pago
-app.post('/notification', async (req, res) => {
-  console.log('--- NOTIFICAÇÃO DO MP RECEBIDA ---');
-  console.log('Conteúdo:', req.body);
-  
-  const { action, data } = req.body;
+// --- Middlewares ---
+app.use(bodyParser.json());
 
-  // 1. Verificamos se é uma notificação de pagamento relevante
-  if (action === 'payment.updated' && data && data.id) {
-    const paymentId = data.id;
-    console.log(`Notificação de pagamento recebida. ID: ${paymentId}. Consultando detalhes...`);
+// --- Rota de "Saúde" (Health Check) ---
+app.get('/', (req, res) => {
+    res.send('Servidor da Máquina de Água (v2.0 com logs) está no ar e operante.');
+});
 
-    try {
-      // 2. "Perguntamos de volta" ao Mercado Pago pelos detalhes do pagamento
-      const response = await axios.get(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
-        headers: {
-          'Authorization': `Bearer ${MP_ACCESS_TOKEN}`
-        }
-      });
 
-      const paymentDetails = response.data;
-      console.log('Detalhes do pagamento recebidos com sucesso.');
+// =================================================================
+// 🚀 ROTA DE NOTIFICAÇÃO (WEBHOOK) DO MERCADO PAGO 🚀
+// =================================================================
+app.post('/notificacao-mp', async (req, res) => {
+    
+    console.log('--- NOTIFICAÇÃO DO MP RECEBIDA ---');
+    // Log completo da notificação para depuração:
+    console.log('Conteúdo:', JSON.stringify(req.body, null, 2));
 
-      // 3. Analisamos os detalhes para confirmar a aprovação e pegar a referência
-      if (paymentDetails.status === 'approved' && paymentDetails.external_reference) {
-        console.log(`Pagamento APROVADO! Referência Externa: ${paymentDetails.external_reference}`);
+    const notificacao = req.body;
+
+    // 1. FILTRAR O TIPO DE NOTIFICAÇÃO
+    if (notificacao.topic === 'payment' || notificacao.type === 'payment') {
         
-        // 4. Tomamos a decisão: extraímos o ID da máquina e o volume
-        const parts = paymentDetails.external_reference.split('-'); // Ex: "maquina01-1500"
-        if (parts.length === 2) {
-          const machineId = parts[0]; // "maquina01"
-          const volume = parseInt(parts[1], 10); // 1500
+        const paymentId = notificacao.data?.id || notificacao.resource; 
 
-          if (volume > 0) {
-            const topic = `${MQTT_BASE_TOPIC}/${machineId}/comandos`;
-            const message = JSON.stringify({ msg: volume });
-
-            // 5. Publicamos o comando no MQTT
-            client.publish(topic, message, (err) => {
-              if (err) {
-                console.error(`Falha ao publicar no tópico ${topic}:`, err);
-              } else {
-                console.log(`>>> Comando '${message}' publicado com sucesso no tópico '${topic}'`);
-              }
-            });
-          }
+        if (!paymentId) {
+            console.warn('⚠️ Notificação de pagamento sem ID. Ignorando.');
+            return res.sendStatus(200);
         }
-      } else {
-        console.log(`Pagamento não está 'approved' ou não tem referência. Status: ${paymentDetails.status}`);
-      }
-    } catch (error) {
-      console.error('Erro ao consultar a API do Mercado Pago:', error.message);
-    }
-  }
 
-  res.status(200).send('OK');
+        console.log(`🔎 Notificação de pagamento recebida. ID: ${paymentId}. Buscando detalhes na API do MP...`);
+
+        try {
+            // 2. BUSCAR OS DETALHES DO PAGAMENTO
+            const payment = await mercadopago.payment.get(paymentId);
+            
+            if (!payment || !payment.body) {
+                console.error(`❌ Falha grave ao buscar dados do pagamento ${paymentId} na API do MP.`);
+                return res.sendStatus(500); 
+            }
+
+            const paymentDetails = payment.body;
+            
+            console.log(`ℹ️ DETALHES DO PAGAMENTO: ID: ${paymentId} | STATUS: ${paymentDetails.status} | TIPO: ${paymentDetails.payment_type_id}`);
+
+            // 3. VERIFICAR SE O PAGAMENTO ESTÁ APROVADO ('approved')
+            if (paymentDetails.status === 'approved') {
+                
+                console.log('✅ PAGAMENTO APROVADO! Preparando para enviar comando MQTT...');
+                
+                // 4. ENVIAR COMANDO PARA O ESP32 VIA MQTT
+                const mensagemMQTT = 'LIBERAR_AGUA';
+                
+                mqttClient.publish(MQTT_TOPIC_COMANDO, mensagemMQTT, (err) => {
+                    if (err) {
+                        console.error('❌ Erro ao publicar mensagem no MQTT:', err);
+                    } else {
+                        console.log(`🚀 Comando "${mensagemMQTT}" publicado com sucesso no tópico "${MQTT_TOPIC_COMANDO}".`);
+                    }
+                });
+
+            } else if (paymentDetails.status === 'in_process' || paymentDetails.status === 'pending') {
+                console.log(`⏳ Pagamento ${paymentId} ainda está "${paymentDetails.status}". Aguardando notificação final.`);
+            } else {
+                console.log(`❌ Pagamento ${paymentId} foi "${paymentDetails.status}". Nenhuma ação necessária.`);
+            }
+
+        } catch (error) {
+            console.error(`💥 Erro ao processar o pagamento ${paymentId}:`, error.message);
+        }
+    
+    } else if (notificacao.topic === 'merchant_order') {
+        console.log('ℹ️ Recebida notificação de "merchant_order". Ignorando (focando apenas em "payment").');
+    } else {
+        console.log(`⚠️ Recebido tópico desconhecido: "${notificacao.topic || notificacao.type}". Ignorando.`);
+    }
+
+    res.sendStatus(200);
 });
 
-app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}.`));
+
+// --- Iniciar o Servidor ---
+app.listen(PORT, () => {
+    console.log(`🚀 Servidor da máquina de água iniciado e rodando na porta ${PORT}`);
+});
