@@ -29,7 +29,7 @@ const MQTT_TOPIC_COMANDO = 'watervendor/maquina01/comandos';
 
 
 // =================================================================
-// FIM DAS CONFIGURAÇÕES
+// FIM DAS CONFIGURAÇÕES.
 // =================================================================
 
 // 2. MUDANÇA: Nova forma de configurar o cliente
