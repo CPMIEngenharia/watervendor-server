@@ -14,13 +14,19 @@ const PORT = process.env.PORT || 3000;
 // --- CREDENCIAIS DO MERCADO PAGO ---
 const MP_ACCESS_TOKEN = 'APP_USR-2337638380276117-092714-fcb4c7f0435c786f6c58a959e3dac448-1036328569';
 
+
+
 // --- CREDENCIAIS DO MQTT ---
-const MQTT_BROKER_URL = 'mqtt://d848ae40758c4732b9333f823b832326.s1.eu.hivemq.cloud'; // Ex: 'mqtt://broker.hivemq.com'
-const MQTT_USERNAME = 'watervendor01'; // Deixe "" se não tiver
-const MQTT_PASSWORD = 'F@b190701';   // Deixe "" se não tiver
+// (Corrigidas com base no seu código do ESP32)
+const MQTT_BROKER_URL = 'mqtts://d848ae40758c4732b9333f823b832326.s1.eu.hivemq.cloud:8883'; // 👈 Note o "mqtts://" (com S) e a porta
+const MQTT_USERNAME = 'watervendor01';
+const MQTT_PASSWORD = 'Water2025';
 
 // --- TÓPICO MQTT ---
-const MQTT_TOPIC_COMANDO = 'maquina_agua/pagamento'; // CONFIRME SE ESTE É O NOME DO TÓPICO
+// (Corrigido para o tópico exato que o seu ESP32 está escutando)
+const MQTT_TOPIC_COMANDO = 'watervendor/maquina01/comandos';
+
+
 
 // =================================================================
 // FIM DAS CONFIGURAÇÕES
