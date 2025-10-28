@@ -22,7 +22,7 @@ const MQTT_BROKER_URL = 'mqtts://d848ae40758c4732b9333f823b832326.s1.eu.hivemq.c
 const MQTT_USERNAME = 'watervendor01';
 const MQTT_PASSWORD = 'Water2025';
 
-// --- TÓPICO MQTT ---
+// --- TÓPICO MQTT ------
 // (Corrigido para o tópico exato que o seu ESP32 está escutando)
 const MQTT_TOPIC_COMANDO = 'watervendor/maquina01/comandos';
 
