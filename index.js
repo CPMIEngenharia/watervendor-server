@@ -57,7 +57,25 @@ mqttClient.on('connect', () => {
 mqttClient.on('error', (err) => {
     console.error('❌ Erro na conexão MQTT:', err);
 });
+// --- NOVO LOG DE DEPURAÇÃO ---
+mqttClient.on('reconnect', () => {
+    console.log('🔄 Tentando reconectar ao MQTT...');
+});
 
+// --- NOVO LOG DE DEPURAÇÃO ---
+mqttClient.on('close', () => {
+    console.log('🚪 Conexão MQTT fechada (evento "close").');
+});
+
+// --- NOVO LOG DE DEPURAÇÃO ---
+mqttClient.on('offline', () => {
+    console.log('🌐 Cliente MQTT ficou offline (evento "offline").');
+});
+
+// --- NOVO LOG DE DEPURAÇÃO ---
+mqttClient.on('end', () => {
+    console.log('🔚 Conexão MQTT terminada (evento "end").');
+});
 // --- Middlewares ---
 app.use(bodyParser.json());
 
