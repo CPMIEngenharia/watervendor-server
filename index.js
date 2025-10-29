@@ -17,13 +17,12 @@ const PORT = process.env.PORT || 3000;
 const MP_ACCESS_TOKEN = 'APP_USR-2337638380276117-092714-fcb4c7f0435c786f6c58a959e3dac448-1036328569'; // 👈 ⚠️ PREENCHA AQUI!
 
 // --- CREDENCIAIS DO MQTT ---
-// (Atualizado com o NOVO usuário dedicado para o servidor)
+// (Credenciais CORRETAS do novo usuário "servidor_nodejs")
 const MQTT_BROKER_URL = 'mqtts://d848ae40758c4732b9333f823b832326.s1.eu.hivemq.cloud:8883';
 const MQTT_USERNAME = 'servidor_nodejs'; // ✅ Novo usuário
 const MQTT_PASSWORD = 'Water2025';        // ✅ Nova senha
 
 // --- TÓPICO MQTT ---
-// (O tópico exato que o seu ESP32 está escutando)
 const MQTT_TOPIC_COMANDO = 'watervendor/maquina01/comandos';
 
 // =================================================================
@@ -45,35 +44,28 @@ const mqttClient = mqtt.connect(MQTT_BROKER_URL, {
     username: MQTT_USERNAME,
     password: MQTT_PASSWORD,
     clientId: 'servidor_nodejs', // ✅ ID DEVE SER IGUAL AO NOVO USERNAME
-    reconnectPeriod: 5000        // Aumenta o tempo de reconexão para 5 segundos
+    reconnectPeriod: 5000
 });
 
 // --- LOGS DE EVENTOS MQTT (PARA DEPURAÇÃO) ---
-
 mqttClient.on('connect', () => {
     console.log('✅ Conectado ao Broker MQTT com sucesso.');
 });
-
 mqttClient.on('error', (err) => {
     console.error('❌ Erro na conexão MQTT:', err);
 });
-
 mqttClient.on('reconnect', () => {
     console.log('🔄 Tentando reconectar ao MQTT...');
 });
-
 mqttClient.on('close', () => {
     console.log('🚪 Conexão MQTT fechada (evento "close").');
 });
-
 mqttClient.on('offline', () => {
     console.log('🌐 Cliente MQTT ficou offline (evento "offline").');
 });
-
 mqttClient.on('end', () => {
     console.log('🔚 Conexão MQTT terminada (evento "end").');
 });
-
 // --- FIM DOS LOGS MQTT ---
 
 
@@ -83,16 +75,19 @@ app.use(bodyParser.json());
 // --- Rota de "Saúde" (Health Check) ---
 app.get('/', (req, res) => {
     console.log('ℹ️ Rota / (Health Check) acessada. Servidor está no ar.');
-    res.send('Servidor da Máquina de Água (v4 - HiveMQ fix) está no ar e operante.');
+    res.send('Servidor da Máquina de Água (v5 - Final) está no ar e operante.');
 });
 
-// --- NOVO HANDLER GET (PARA DEPURAÇÃO DO 404) ---
+
+// --- NOVO HANDLER GET (PARA DEPURAÇÃO DO 404 DO MP) ---
 app.get('/notificacao-mp', (req, res) => {
     console.warn('⚠️ AVISO: Recebida uma requisição GET na rota /notificacao-mp. Esta rota só aceita POST.');
     // Responde 405 - Method Not Allowed (o erro correto)
     res.status(405).send('Method Not Allowed: Esta rota só aceita POST.');
 });
 // --- FIM DO NOVO HANDLER ---
+
+
 // =================================================================
 // 🚀 ROTA DE NOTIFICAÇÃO (WEBHOOK) DO MERCADO PAGO 🚀
 // =================================================================
@@ -103,7 +98,6 @@ app.post('/notificacao-mp', async (req, res) => {
 
     const notificacao = req.body;
 
-    // 1. FILTRAR O TIPO DE NOTIFICAÇÃO
     if (notificacao.topic === 'payment' || notificacao.type === 'payment') {
         
         const paymentId = notificacao.data?.id; 
@@ -116,8 +110,6 @@ app.post('/notificacao-mp', async (req, res) => {
         console.log(`🔎 Notificação de pagamento recebida. ID: ${paymentId}. Buscando detalhes na API do MP...`);
 
         try {
-            // 2. BUSCAR OS DETALHES DO PAGAMENTO
-            // (Usando a nova SDK v3)
             const paymentDetails = await mpPayment.get({ id: paymentId });
             
             if (!paymentDetails) {
@@ -127,13 +119,11 @@ app.post('/notificacao-mp', async (req, res) => {
             
             console.log(`ℹ️ DETALHES DO PAGAMENTO: ID: ${paymentId} | STATUS: ${paymentDetails.status} | TIPO: ${paymentDetails.payment_type_id}`);
 
-            // 3. VERIFICAR SE O PAGAMENTO ESTÁ APROVADO ('approved')
             if (paymentDetails.status === 'approved') {
                 
                 console.log('✅ PAGAMENTO APROVADO! Preparando para enviar comando MQTT...');
                 
-                // 4. ENVIAR COMANDO PARA O ESP32 VIA MQTT
-                const mensagemMQTT = 'LIBERAR_AGUA'; // Mude se o comando for outro
+                const mensagemMQTT = 'LIBERAR_AGUA';
                 
                 mqttClient.publish(MQTT_TOPIC_COMANDO, mensagemMQTT, (err) => {
                     if (err) {
