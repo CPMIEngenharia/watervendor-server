@@ -86,7 +86,13 @@ app.get('/', (req, res) => {
     res.send('Servidor da Máquina de Água (v4 - HiveMQ fix) está no ar e operante.');
 });
 
-
+// --- NOVO HANDLER GET (PARA DEPURAÇÃO DO 404) ---
+app.get('/notificacao-mp', (req, res) => {
+    console.warn('⚠️ AVISO: Recebida uma requisição GET na rota /notificacao-mp. Esta rota só aceita POST.');
+    // Responde 405 - Method Not Allowed (o erro correto)
+    res.status(405).send('Method Not Allowed: Esta rota só aceita POST.');
+});
+// --- FIM DO NOVO HANDLER ---
 // =================================================================
 // 🚀 ROTA DE NOTIFICAÇÃO (WEBHOOK) DO MERCADO PAGO 🚀
 // =================================================================
