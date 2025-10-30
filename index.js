@@ -1,6 +1,6 @@
 // Forçando um novo deploy para checar os logs
 const express = require('express');
-const crypto = require('crypto'); // 👈 ADICIONADO PARA CRIPTOGRAFIA
+const crypto = require('crypto'); // Para a Assinatura Secreta
 const mercadopago = require('mercadopago');
 const mqtt = require('mqtt');
 
@@ -22,8 +22,8 @@ const MP_WEBHOOK_SECRET = '4e923a13f3eefc2794f5486746713822aeb2894019373ab05813b
 // --- CREDENCIAIS DO MQTT ---
 // (Credenciais CORRETAS do novo usuário "servidor_nodejs")
 const MQTT_BROKER_URL = 'mqtts://d848ae40758c4732b9333f823b832326.s1.eu.hivemq.cloud:8883';
-const MQTT_USERNAME = 'servidor_nodejs';
-const MQTT_PASSWORD = 'Water2025';
+const MQTT_USERNAME = 'servidor_nodejs'; // ✅ Novo usuário
+const MQTT_PASSWORD = 'Water2025';        // ✅ Nova senha
 
 // --- TÓPICO MQTT ---
 const MQTT_TOPIC_COMANDO = 'watervendor/maquina01/comandos';
@@ -46,7 +46,7 @@ console.log('🔌 Tentando conectar ao Broker MQTT...');
 const mqttClient = mqtt.connect(MQTT_BROKER_URL, {
     username: MQTT_USERNAME,
     password: MQTT_PASSWORD,
-    clientId: 'servidor_nodejs',
+    clientId: 'servidor_nodejs', // ✅ ID DEVE SER IGUAL AO NOVO USERNAME
     reconnectPeriod: 5000
 });
 
@@ -57,18 +57,28 @@ mqttClient.on('connect', () => {
 mqttClient.on('error', (err) => {
     console.error('❌ Erro na conexão MQTT:', err);
 });
-// (Os outros logs de 'reconnect', 'close', etc. ainda estão aqui, mas omitidos para economizar espaço)
-// ...
+mqttClient.on('reconnect', () => {
+    console.log('🔄 Tentando reconectar ao MQTT...');
+});
+mqttClient.on('close', () => {
+    console.log('🚪 Conexão MQTT fechada (evento "close").');
+});
+mqttClient.on('offline', () => {
+    console.log('🌐 Cliente MQTT ficou offline (evento "offline").');
+});
+mqttClient.on('end', () => {
+    console.log('🔚 Conexão MQTT terminada (evento "end").');
+});
+// --- FIM DOS LOGS MQTT ---
 
 
 // --- Middlewares ---
-// (Usando o express.json() em vez do bodyParser.json())
 app.use(express.json());
 
 // --- Rota de "Saúde" (Health Check) ---
 app.get('/', (req, res) => {
     console.log('ℹ️ Rota / (Health Check) acessada. Servidor está no ar.');
-    res.send('Servidor da Máquina de Água (v6 - Assinatura OK) está no ar e operante.');
+    res.send('Servidor da Máquina de Água (v6.1 - Final) está no ar e operante.');
 });
 
 
@@ -97,7 +107,6 @@ app.post('/notificacao-mp', async (req, res) => {
             return res.sendStatus(400); // Bad Request
         }
 
-        // 1. Separar o timestamp (ts) e o hash (v1)
         const parts = signatureHeader.split(',').reduce((acc, part) => {
             const [key, value] = part.split('=');
             acc[key.trim()] = value.trim();
@@ -112,8 +121,6 @@ app.post('/notificacao-mp', async (req, res) => {
             return res.sendStatus(400);
         }
 
-        // 2. Recriar a "base string"
-        // (Baseado na documentação oficial do MP: "id:${notification_id};request-id:${x-request-id};ts:${ts};")
         const notificationId = req.body.id; 
         
         if (!notificationId) {
@@ -123,12 +130,10 @@ app.post('/notificacao-mp', async (req, res) => {
 
         const baseString = `id:${notificationId};request-id:${requestId};ts:${ts};`;
 
-        // 3. Gerar nosso hash
         const hmac = crypto.createHmac('sha256', MP_WEBHOOK_SECRET);
         hmac.update(baseString);
         const generatedHash = hmac.digest('hex');
 
-        // 4. Comparar
         if (generatedHash !== receivedHash) {
             console.error('❌ ERRO DE ASSINATURA: Assinatura inválida! Webhook rejeitado.');
             console.log(`   > Base String usada: ${baseString}`);
@@ -147,8 +152,7 @@ app.post('/notificacao-mp', async (req, res) => {
 
 
     // -----------------------------------------------------------------
-    // (O código de processamento do pagamento começa aqui,
-    // pois a assinatura foi validada)
+    // (O código de processamento do pagamento começa aqui)
     // -----------------------------------------------------------------
     
     const notificacao = req.body;
