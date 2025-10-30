@@ -34,7 +34,7 @@ const MQTT_TOPIC_COMANDO = 'watervendor/maquina01/comandos';
 
 
 // --- Configuração do Mercado Pago (SDK v3) ---
-console.log('🔌 Configurando cliente Mercado Pago (SDK v3)...');
+console.log('V7 - 🔌 Configurando cliente Mercado Pago (SDK v3)...');
 const mpClient = new mercadopago.MercadoPagoConfig({
     access_token: MP_ACCESS_TOKEN
 });
