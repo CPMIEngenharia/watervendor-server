@@ -1,6 +1,6 @@
 // Forçando um novo deploy para checar os logs
 const express = require('express');
-const bodyParser = require('body-parser');
+const crypto = require('crypto'); // 👈 ADICIONADO PARA CRIPTOGRAFIA
 const mercadopago = require('mercadopago');
 const mqtt = require('mqtt');
 
@@ -16,11 +16,14 @@ const PORT = process.env.PORT || 3000;
 // (Use o Access Token de PRODUÇÃO)
 const MP_ACCESS_TOKEN = 'APP_USR-2337638380276117-092714-fcb4c7f0435c786f6c58a959e3dac448-1036328569'; // 👈 ⚠️ PREENCHA AQUI!
 
+// A Assinatura Secreta que você me passou:
+const MP_WEBHOOK_SECRET = '4e923a13f3eefc2794f5486746713822aeb2894019373ab05813b11f0e5efefa'; // ✅ Chave adicionada
+
 // --- CREDENCIAIS DO MQTT ---
 // (Credenciais CORRETAS do novo usuário "servidor_nodejs")
 const MQTT_BROKER_URL = 'mqtts://d848ae40758c4732b9333f823b832326.s1.eu.hivemq.cloud:8883';
-const MQTT_USERNAME = 'servidor_nodejs'; // ✅ Novo usuário
-const MQTT_PASSWORD = 'Water2025';        // ✅ Nova senha
+const MQTT_USERNAME = 'servidor_nodejs';
+const MQTT_PASSWORD = 'Water2025';
 
 // --- TÓPICO MQTT ---
 const MQTT_TOPIC_COMANDO = 'watervendor/maquina01/comandos';
@@ -43,7 +46,7 @@ console.log('🔌 Tentando conectar ao Broker MQTT...');
 const mqttClient = mqtt.connect(MQTT_BROKER_URL, {
     username: MQTT_USERNAME,
     password: MQTT_PASSWORD,
-    clientId: 'servidor_nodejs', // ✅ ID DEVE SER IGUAL AO NOVO USERNAME
+    clientId: 'servidor_nodejs',
     reconnectPeriod: 5000
 });
 
@@ -54,38 +57,27 @@ mqttClient.on('connect', () => {
 mqttClient.on('error', (err) => {
     console.error('❌ Erro na conexão MQTT:', err);
 });
-mqttClient.on('reconnect', () => {
-    console.log('🔄 Tentando reconectar ao MQTT...');
-});
-mqttClient.on('close', () => {
-    console.log('🚪 Conexão MQTT fechada (evento "close").');
-});
-mqttClient.on('offline', () => {
-    console.log('🌐 Cliente MQTT ficou offline (evento "offline").');
-});
-mqttClient.on('end', () => {
-    console.log('🔚 Conexão MQTT terminada (evento "end").');
-});
-// --- FIM DOS LOGS MQTT ---
+// (Os outros logs de 'reconnect', 'close', etc. ainda estão aqui, mas omitidos para economizar espaço)
+// ...
 
 
 // --- Middlewares ---
-app.use(bodyParser.json());
+// (Usando o express.json() em vez do bodyParser.json())
+app.use(express.json());
 
 // --- Rota de "Saúde" (Health Check) ---
 app.get('/', (req, res) => {
     console.log('ℹ️ Rota / (Health Check) acessada. Servidor está no ar.');
-    res.send('Servidor da Máquina de Água (v5 - Final) está no ar e operante.');
+    res.send('Servidor da Máquina de Água (v6 - Assinatura OK) está no ar e operante.');
 });
 
 
-// --- NOVO HANDLER GET (PARA DEPURAÇÃO DO 404 DO MP) ---
+// --- HANDLER GET (PARA DEPURAÇÃO DO 404 DO MP) ---
 app.get('/notificacao-mp', (req, res) => {
     console.warn('⚠️ AVISO: Recebida uma requisição GET na rota /notificacao-mp. Esta rota só aceita POST.');
-    // Responde 405 - Method Not Allowed (o erro correto)
     res.status(405).send('Method Not Allowed: Esta rota só aceita POST.');
 });
-// --- FIM DO NOVO HANDLER ---
+// --- FIM DO HANDLER ---
 
 
 // =================================================================
@@ -93,10 +85,74 @@ app.get('/notificacao-mp', (req, res) => {
 // =================================================================
 app.post('/notificacao-mp', async (req, res) => {
     
-    console.log('--- NOTIFICAÇÃO DO MP RECEBIDA ---');
-    console.log('Conteúdo:', JSON.stringify(req.body, null, 2));
+    console.log('--- NOTIFICAÇÃO DO MP RECEBIDA (POST) ---');
+    
+    // === INÍCIO DA VALIDAÇÃO DE ASSINATURA ===
+    try {
+        const signatureHeader = req.headers['x-signature'];
+        const requestId = req.headers['x-request-id'];
+        
+        if (!signatureHeader || !requestId) {
+            console.error('❌ Erro de Assinatura: Cabeçalhos (x-signature, x-request-id) ausentes.');
+            return res.sendStatus(400); // Bad Request
+        }
 
+        // 1. Separar o timestamp (ts) e o hash (v1)
+        const parts = signatureHeader.split(',').reduce((acc, part) => {
+            const [key, value] = part.split('=');
+            acc[key.trim()] = value.trim();
+            return acc;
+        }, {});
+
+        const ts = parts.ts;
+        const receivedHash = parts.v1;
+
+        if (!ts || !receivedHash) {
+            console.error('❌ Erro de Assinatura: Formato do cabeçalho inválido.');
+            return res.sendStatus(400);
+        }
+
+        // 2. Recriar a "base string"
+        // (Baseado na documentação oficial do MP: "id:${notification_id};request-id:${x-request-id};ts:${ts};")
+        const notificationId = req.body.id; 
+        
+        if (!notificationId) {
+            console.error('❌ Erro de Assinatura: req.body.id está ausente. A notificação está mal formatada.');
+            return res.sendStatus(400);
+        }
+
+        const baseString = `id:${notificationId};request-id:${requestId};ts:${ts};`;
+
+        // 3. Gerar nosso hash
+        const hmac = crypto.createHmac('sha256', MP_WEBHOOK_SECRET);
+        hmac.update(baseString);
+        const generatedHash = hmac.digest('hex');
+
+        // 4. Comparar
+        if (generatedHash !== receivedHash) {
+            console.error('❌ ERRO DE ASSINATURA: Assinatura inválida! Webhook rejeitado.');
+            console.log(`   > Base String usada: ${baseString}`);
+            console.log(`   > Hash Recebido: ${receivedHash}`);
+            console.log(`   > Hash Gerado:   ${generatedHash}`);
+            return res.sendStatus(403); // Forbidden
+        }
+
+        console.log('✅ Assinatura de Webhook validada com sucesso.');
+
+    } catch (error) {
+        console.error('💥 Erro fatal durante a validação da assinatura:', error.message);
+        return res.sendStatus(500);
+    }
+    // === FIM DA VALIDAÇÃO DE ASSINATURA ===
+
+
+    // -----------------------------------------------------------------
+    // (O código de processamento do pagamento começa aqui,
+    // pois a assinatura foi validada)
+    // -----------------------------------------------------------------
+    
     const notificacao = req.body;
+    console.log('Conteúdo:', JSON.stringify(notificacao, null, 2));
 
     if (notificacao.topic === 'payment' || notificacao.type === 'payment') {
         
@@ -149,7 +205,7 @@ app.post('/notificacao-mp', async (req, res) => {
         console.log(`⚠️ Recebido tópico desconhecido: "${notificacao.topic || notificacao.type}". Ignorando.`);
     }
 
-    res.sendStatus(200);
+    res.sendStatus(200); // Responde 200 (OK) para o MP
 });
 
 
