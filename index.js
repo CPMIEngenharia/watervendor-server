@@ -12,7 +12,9 @@ const PORT = process.env.PORT || 3000;
 // =================================================================
 const MP_ACCESS_TOKEN = 'APP_USR-2337638380276117-092714-fcb4c7f0435c786f6c58a959e3dac448-1036328569'; // 👈 ⚠️ PREENCHA AQUI!
 const MP_WEBHOOK_SECRET = '4e923a13f3eefc2794f5486746713822aeb2894019373ab05813b11f0e5efefa';
-const MQTT_BROKER_URL = 'mqtts://d848ae40758c4732b9333f823b832326.s1.eu.hivemq.cloud:8883';
+//const MQTT_BROKER_URL = 'mqtts://d848ae40758c4732b9333f823b832326.s1.eu.hivemq.cloud:8883';
+// Linha NOVA (usando WebSockets Seguros)
+const MQTT_BROKER_URL = 'wss://d848ae40758c4732b9333f823b832326.s1.eu.hivemq.cloud/mqtt';
 const MQTT_USERNAME = 'servidor_nodejs';
 const MQTT_PASSWORD = 'Water2025';
 const MQTT_TOPIC_COMANDO = 'watervendor/maquina01/comandos';
