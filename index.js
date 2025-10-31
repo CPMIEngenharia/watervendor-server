@@ -1,86 +1,58 @@
-// Forçando um novo deploy para checar os logs
+// Deploy V8 - Corrigindo a lógica de Assinatura
 const express = require('express');
-const crypto = require('crypto'); // Para a Assinatura Secreta
+const crypto = require('crypto');
 const mercadopago = require('mercadopago');
 const mqtt = require('mqtt');
 
 const app = express();
-// O Render define a porta pela variável de ambiente PORT
 const PORT = process.env.PORT || 3000;
 
 // =================================================================
 // ⚠️ ATENÇÃO: PREENCHA O SEU ACCESS TOKEN DO MERCADO PAGO ⚠️
 // =================================================================
-
-// --- CREDENCIAIS DO MERCADO PAGO ---
-// (Use o Access Token de PRODUÇÃO)
 const MP_ACCESS_TOKEN = 'APP_USR-2337638380276117-092714-fcb4c7f0435c786f6c58a959e3dac448-1036328569'; // 👈 ⚠️ PREENCHA AQUI!
-
-// A Assinatura Secreta que você me passou:
-const MP_WEBHOOK_SECRET = '4e923a13f3eefc2794f5486746713822aeb2894019373ab05813b11f0e5efefa'; // ✅ Chave adicionada
-
-// --- CREDENCIAIS DO MQTT ---
-// (Credenciais CORRETAS do novo usuário "servidor_nodejs")
+const MP_WEBHOOK_SECRET = '4e923a13f3eefc2794f5486746713822aeb2894019373ab05813b11f0e5efefa';
 const MQTT_BROKER_URL = 'mqtts://d848ae40758c4732b9333f823b832326.s1.eu.hivemq.cloud:8883';
-const MQTT_USERNAME = 'servidor_nodejs'; // ✅ Novo usuário
-const MQTT_PASSWORD = 'Water2025';        // ✅ Nova senha
-
-// --- TÓPICO MQTT ---
+const MQTT_USERNAME = 'servidor_nodejs';
+const MQTT_PASSWORD = 'Water2025';
 const MQTT_TOPIC_COMANDO = 'watervendor/maquina01/comandos';
-
 // =================================================================
-// FIM DAS CONFIGURAÇÕES
-// =================================================================
-
 
 // --- Configuração do Mercado Pago (SDK v3) ---
-console.log('V7 - 🔌 Configurando cliente Mercado Pago (SDK v3)...');
-const mpClient = new mercadopago.MercadoPagoConfig({
-    access_token: MP_ACCESS_TOKEN
-});
+console.log('V8 - 🔌 Configurando cliente Mercado Pago (SDK v3)...');
+const mpClient = new mercadopago.MercadoPagoConfig({ access_token: MP_ACCESS_TOKEN });
 const mpPayment = new mercadopago.Payment(mpClient);
 
-
 // --- Configuração do Cliente MQTT ---
-console.log('🔌 Tentando conectar ao Broker MQTT...');
+console.log('V8 - 🔌 Tentando conectar ao Broker MQTT...');
 const mqttClient = mqtt.connect(MQTT_BROKER_URL, {
     username: MQTT_USERNAME,
     password: MQTT_PASSWORD,
-    clientId: 'servidor_nodejs', // ✅ ID DEVE SER IGUAL AO NOVO USERNAME
+    clientId: 'servidor_nodejs', // ID DEVE SER IGUAL AO NOVO USERNAME
     reconnectPeriod: 5000
 });
 
 // --- LOGS DE EVENTOS MQTT (PARA DEPURAÇÃO) ---
-mqttClient.on('connect', () => {
-    console.log('✅ Conectado ao Broker MQTT com sucesso.');
-});
-mqttClient.on('error', (err) => {
-    console.error('❌ Erro na conexão MQTT:', err);
-});
-mqttClient.on('reconnect', () => {
-    console.log('🔄 Tentando reconectar ao MQTT...');
-});
-mqttClient.on('close', () => {
-    console.log('🚪 Conexão MQTT fechada (evento "close").');
-});
-mqttClient.on('offline', () => {
-    console.log('🌐 Cliente MQTT ficou offline (evento "offline").');
-});
-mqttClient.on('end', () => {
-    console.log('🔚 Conexão MQTT terminada (evento "end").');
-});
+mqttClient.on('connect', () => console.log('✅ Conectado ao Broker MQTT com sucesso.'));
+mqttClient.on('error', (err) => console.error('❌ Erro na conexão MQTT:', err));
+mqttClient.on('reconnect', () => console.log('🔄 Tentando reconectar ao MQTT...'));
+mqttClient.on('close', () => console.log('🚪 Conexão MQTT fechada (evento "close").'));
 // --- FIM DOS LOGS MQTT ---
 
-
 // --- Middlewares ---
-app.use(express.json());
+// Adiciona o 'verify' para salvar o "rawBody"
+// Precisamos do rawBody ANTES do json() para a Assinatura
+app.use(express.json({
+  verify: (req, res, buf) => {
+    req.rawBody = buf;
+  }
+}));
 
 // --- Rota de "Saúde" (Health Check) ---
 app.get('/', (req, res) => {
     console.log('ℹ️ Rota / (Health Check) acessada. Servidor está no ar.');
-    res.send('Servidor da Máquina de Água (v6.1 - Final) está no ar e operante.');
+    res.send('Servidor da Máquina de Água (v8 - Assinatura Fix) está no ar.');
 });
-
 
 // --- HANDLER GET (PARA DEPURAÇÃO DO 404 DO MP) ---
 app.get('/notificacao-mp', (req, res) => {
@@ -89,15 +61,13 @@ app.get('/notificacao-mp', (req, res) => {
 });
 // --- FIM DO HANDLER ---
 
-
 // =================================================================
 // 🚀 ROTA DE NOTIFICAÇÃO (WEBHOOK) DO MERCADO PAGO 🚀
 // =================================================================
 app.post('/notificacao-mp', async (req, res) => {
-    
     console.log('--- NOTIFICAÇÃO DO MP RECEBIDA (POST) ---');
     
-    // === INÍCIO DA VALIDAÇÃO DE ASSINATURA ===
+    // === INÍCIO DA VALIDAÇÃO DE ASSINATURA (Lógica Corrigida) ===
     try {
         const signatureHeader = req.headers['x-signature'];
         const requestId = req.headers['x-request-id'];
@@ -121,10 +91,13 @@ app.post('/notificacao-mp', async (req, res) => {
             return res.sendStatus(400);
         }
 
-        const notificationId = req.body.id; 
+        // A documentação do MP é confusa. O 'id' pode estar no 'query' ou no 'body.data.id'
+        const notificationId = req.query.id || req.body.data?.id; 
         
         if (!notificationId) {
-            console.error('❌ Erro de Assinatura: req.body.id está ausente. A notificação está mal formatada.');
+            console.error('❌ Erro de Assinatura: ID da notificação (query.id ou body.data.id) está ausente.');
+            // Se o ID for do body, precisamos ter certeza que o body foi parseado
+            console.log("Corpo recebido:", JSON.stringify(req.body));
             return res.sendStatus(400);
         }
 
@@ -146,11 +119,11 @@ app.post('/notificacao-mp', async (req, res) => {
 
     } catch (error) {
         console.error('💥 Erro fatal durante a validação da assinatura:', error.message);
+        console.error("Stack trace:", error.stack);
         return res.sendStatus(500);
     }
     // === FIM DA VALIDAÇÃO DE ASSINATURA ===
-
-
+    
     // -----------------------------------------------------------------
     // (O código de processamento do pagamento começa aqui)
     // -----------------------------------------------------------------
@@ -158,33 +131,25 @@ app.post('/notificacao-mp', async (req, res) => {
     const notificacao = req.body;
     console.log('Conteúdo:', JSON.stringify(notificacao, null, 2));
 
-    if (notificacao.topic === 'payment' || notificacao.type === 'payment') {
-        
+    if (notificacao.type === 'payment') {
         const paymentId = notificacao.data?.id; 
-
         if (!paymentId) {
             console.warn('⚠️ Notificação de pagamento sem ID (data.id). Ignorando.');
             return res.sendStatus(200);
         }
-
-        console.log(`🔎 Notificação de pagamento recebida. ID: ${paymentId}. Buscando detalhes na API do MP...`);
+        console.log(`🔎 Notificação de pagamento recebida. ID: ${paymentId}. Buscando detalhes...`);
 
         try {
             const paymentDetails = await mpPayment.get({ id: paymentId });
-            
             if (!paymentDetails) {
-                console.error(`❌ Falha grave ao buscar dados do pagamento ${paymentId} na API do MP.`);
+                console.error(`❌ Falha grave ao buscar dados do pagamento ${paymentId}.`);
                 return res.sendStatus(500); 
             }
             
             console.log(`ℹ️ DETALHES DO PAGAMENTO: ID: ${paymentId} | STATUS: ${paymentDetails.status} | TIPO: ${paymentDetails.payment_type_id}`);
-
             if (paymentDetails.status === 'approved') {
-                
                 console.log('✅ PAGAMENTO APROVADO! Preparando para enviar comando MQTT...');
-                
                 const mensagemMQTT = 'LIBERAR_AGUA';
-                
                 mqttClient.publish(MQTT_TOPIC_COMANDO, mensagemMQTT, (err) => {
                     if (err) {
                         console.error('❌ Erro ao publicar mensagem no MQTT:', err);
@@ -192,21 +157,14 @@ app.post('/notificacao-mp', async (req, res) => {
                         console.log(`🚀 Comando "${mensagemMQTT}" publicado com sucesso no tópico "${MQTT_TOPIC_COMANDO}".`);
                     }
                 });
-
-            } else if (paymentDetails.status === 'in_process' || paymentDetails.status === 'pending') {
-                console.log(`⏳ Pagamento ${paymentId} ainda está "${paymentDetails.status}". Aguardando notificação final.`);
             } else {
-                console.log(`❌ Pagamento ${paymentId} foi "${paymentDetails.status}". Nenhuma ação necessária.`);
+                console.log(`⏳ Pagamento ${paymentId} ainda está "${paymentDetails.status}". Aguardando notificação.`);
             }
-
         } catch (error) {
             console.error(`💥 Erro ao processar o pagamento ${paymentId}:`, error.message);
         }
-    
-    } else if (notificacao.topic === 'merchant_order') {
-        console.log('ℹ️ Recebida notificação de "merchant_order". Ignorando (focando apenas em "payment").');
     } else {
-        console.log(`⚠️ Recebido tópico desconhecido: "${notificacao.topic || notificacao.type}". Ignorando.`);
+        console.log(`ℹ️ Recebido evento do tipo "${notificacao.type}". Ignorando (focando apenas em "payment").`);
     }
 
     res.sendStatus(200); // Responde 200 (OK) para o MP
@@ -215,5 +173,5 @@ app.post('/notificacao-mp', async (req, res) => {
 
 // --- Iniciar o Servidor ---
 app.listen(PORT, () => {
-    console.log(`🚀 Servidor da máquina de água iniciado e rodando na porta ${PORT}`);
+    console.log(`🚀 Servidor da máquina de águia (V8) iniciado e rodando na porta ${PORT}`);
 });
