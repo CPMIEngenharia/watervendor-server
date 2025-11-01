@@ -1,58 +1,37 @@
-// V10 - Versão para Railway (lendo variáveis de ambiente)
+// V11 - "Começando de Novo". MQTT DESATIVADO.
 const express = require('express');
 const crypto = require('crypto');
 const mercadopago = require('mercadopago');
-const mqtt = require('mqtt');
+// const mqtt = require('mqtt'); // <-- MQTT DESATIVADO
 
 const app = express();
-// O Railway define a porta pela variável de ambiente PORT
 const PORT = process.env.PORT || 3000;
 
 // =================================================================
 // 🔒 CARREGANDO VARIÁVEIS DE AMBIENTE 🔒
-// (Não preencha nada aqui, vamos configurar isso no Railway)
 // =================================================================
-
 const MP_ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN;
 const MP_WEBHOOK_SECRET = process.env.MP_WEBHOOK_SECRET;
-const MQTT_BROKER_URL = process.env.MQTT_BROKER_URL;
-const MQTT_USERNAME = process.env.MQTT_USERNAME;
-const MQTT_PASSWORD = process.env.MQTT_PASSWORD;
-const MQTT_TOPIC_COMANDO = process.env.MQTT_TOPIC_COMANDO;
-
+// As variáveis MQTT não são usadas nesta versão
 // =================================================================
 
-// Verificação de inicialização (só para log)
-if (!MP_ACCESS_TOKEN || !MP_WEBHOOK_SECRET || !MQTT_BROKER_URL) {
-    console.error('❌ ERRO FATAL: Variáveis de ambiente (MP_ACCESS_TOKEN, MP_WEBHOOK_SECRET, MQTT_BROKER_URL) não definidas.');
-    // Não paramos o processo para o Render/Railway não entrar em loop de crash
+// Verificação de inicialização
+if (!MP_ACCESS_TOKEN || !MP_WEBHOOK_SECRET) {
+    console.error('❌ ERRO FATAL: Variáveis de ambiente (MP_ACCESS_TOKEN, MP_WEBHOOK_SECRET) não definidas.');
 }
 
 // --- Configuração do Mercado Pago (SDK v3) ---
-console.log('V10 - 🔌 Configurando cliente Mercado Pago (SDK v3)...');
+console.log('V11 - 🔌 Configurando cliente Mercado Pago (SDK v3)...');
 const mpClient = new mercadopago.MercadoPagoConfig({
     access_token: MP_ACCESS_TOKEN
 });
 const mpPayment = new mercadopago.Payment(mpClient);
 
-
-// --- Configuração do Cliente MQTT ---
-console.log('V10 - 🔌 Tentando conectar ao Broker MQTT...');
-const mqttClient = mqtt.connect(MQTT_BROKER_URL, {
-    username: MQTT_USERNAME,
-    password: MQTT_PASSWORD,
-    clientId: MQTT_USERNAME, // A política do HiveMQ exige que o ID seja igual ao Username
-    reconnectPeriod: 5000,
-    keepalive: 30 // Mantém a conexão ativa
-});
-
-// --- LOGS DE EVENTOS MQTT (PARA DEPURAÇÃO) ---
-mqttClient.on('connect', () => console.log('✅ Conectado ao Broker MQTT com sucesso.'));
-mqttClient.on('error', (err) => console.error('❌ Erro na conexão MQTT:', err));
-mqttClient.on('reconnect', () => console.log('🔄 Tentando reconectar ao MQTT...'));
-mqttClient.on('close', () => console.log('🚪 Conexão MQTT fechada (evento "close").'));
-// --- FIM DOS LOGS MQTT ---
-
+/*
+// --- Configuração do Cliente MQTT (DESATIVADO) ---
+console.log('V11 - 🔌 Conexão MQTT está DESATIVADA.');
+const mqttClient = { publish: () => {} }; // Objeto falso para não quebrar
+*/
 
 // --- Middlewares ---
 app.use(express.json({
@@ -63,25 +42,20 @@ app.use(express.json({
 
 // --- Rota de "Saúde" (Health Check) ---
 app.get('/', (req, res) => {
-    console.log('ℹ️ Rota / (Health Check) acessada. Servidor está no ar.');
-    res.send('Servidor da Máquina de Água (v10 - Railway) está no ar e operante.');
+    console.log('ℹ️ Rota / (Health Check) acessada. Servidor está no ar (v11).');
+    res.send('Servidor da Máquina de Água (v11 - Sem MQTT) está no ar e operante.');
 });
-
 
 // --- HANDLER GET (PARA DEPURAÇÃO DO 404 DO MP) ---
 app.get('/notificacao-mp', (req, res) => {
     console.warn('⚠️ AVISO: Recebida uma requisição GET na rota /notificacao-mp. Esta rota só aceita POST.');
     res.status(405).send('Method Not Allowed: Esta rota só aceita POST.');
 });
-// --- FIM DO HANDLER ---
-
 
 // =================================================================
 // 🚀 ROTA DE NOTIFICAÇÃO (WEBHOOK) DO MERCADO PAGO 🚀
-// (Lógica de assinatura v8)
 // =================================================================
 app.post('/notificacao-mp', async (req, res) => {
-    
     console.log('--- NOTIFICAÇÃO DO MP RECEBIDA (POST) ---');
     
     // === INÍCIO DA VALIDAÇÃO DE ASSINATURA ===
@@ -90,7 +64,7 @@ app.post('/notificacao-mp', async (req, res) => {
         const requestId = req.headers['x-request-id'];
         
         if (!signatureHeader || !requestId) {
-            console.error('❌ Erro de Assinatura: Cabeçalhos (x-signature, x-request-id) ausentes.');
+            console.error('❌ Erro de Assinatura: Cabeçalhos ausentes.');
             return res.sendStatus(400); 
         }
 
@@ -108,11 +82,10 @@ app.post('/notificacao-mp', async (req, res) => {
             return res.sendStatus(400);
         }
 
-        // A documentação do MP é confusa. O 'id' pode estar no 'query' ou no 'body.data.id'
         const notificationId = req.query.id || req.body.data?.id; 
 
         if (!notificationId) {
-            console.error('❌ Erro de Assinatura: ID da notificação (query.id ou body.data.id) está ausente.');
+            console.error('❌ Erro de Assinatura: ID da notificação ausente.');
             return res.sendStatus(400);
         }
 
@@ -123,7 +96,7 @@ app.post('/notificacao-mp', async (req, res) => {
 
         if (generatedHash !== receivedHash) {
             console.error('❌ ERRO DE ASSINATURA: Assinatura inválida! Webhook rejeitado.');
-            return res.sendStatus(403); // Forbidden
+            return res.sendStatus(403); 
         }
         console.log('✅ Assinatura de Webhook validada com sucesso.');
     } catch (error) {
@@ -132,8 +105,7 @@ app.post('/notificacao-mp', async (req, res) => {
     }
     // === FIM DA VALIDAÇÃO DE ASSINATURA ===
     
-    // (O resto do código de processamento de pagamento continua aqui, intacto)
-    
+    // --- Processamento do Pagamento ---
     const notificacao = req.body;
     console.log('Conteúdo:', JSON.stringify(notificacao, null, 2));
 
@@ -147,30 +119,18 @@ app.post('/notificacao-mp', async (req, res) => {
 
         try {
             const paymentDetails = await mpPayment.get({ id: paymentId });
-            if (!paymentDetails) {
-                console.error(`❌ Falha grave ao buscar dados do pagamento ${paymentId}.`);
-                return res.sendStatus(500); 
-            }
-            
-            console.log(`ℹ️ DETALHES DO PAGAMENTO: ID: ${paymentId} | STATUS: ${paymentDetails.status} | TIPO: ${paymentDetails.payment_type_id}`);
             if (paymentDetails.status === 'approved') {
-                console.log('✅ PAGAMENTO APROVADO! Preparando para enviar comando MQTT...');
-                const mensagemMQTT = 'LIBERAR_AGUA';
-                mqttClient.publish(MQTT_TOPIC_COMANDO, mensagemMQTT, (err) => {
-                    if (err) {
-                        console.error('❌ Erro ao publicar mensagem no MQTT:', err);
-                    } else {
-                        console.log(`🚀 Comando "${mensagemMQTT}" publicado com sucesso no tópico "${MQTT_TOPIC_COMANDO}".`);
-                    }
-                });
+                console.log('✅ PAGAMENTO APROVADO!');
+                console.warn('⚠️ Ação MQTT está DESATIVADA (para testes).');
+                // mqttClient.publish(MQTT_TOPIC_COMANDO, "LIBERAR_AGUA", ...);
             } else {
-                console.log(`⏳ Pagamento ${paymentId} ainda está "${paymentDetails.status}". Aguardando notificação.`);
+                console.log(`⏳ Pagamento ${paymentId} ainda está "${paymentDetails.status}". Aguardando.`);
             }
         } catch (error) {
             console.error(`💥 Erro ao processar o pagamento ${paymentId}:`, error.message);
         }
     } else {
-        console.log(`ℹ️ Recebido evento do tipo "${notificacao.type}". Ignorando (focando apenas em "payment").`);
+        console.log(`ℹ️ Recebido evento do tipo "${notificacao.type}". Ignorando (focando em "payment").`);
     }
 
     res.sendStatus(200); // Responde 200 (OK) para o MP
@@ -179,5 +139,5 @@ app.post('/notificacao-mp', async (req, res) => {
 
 // --- Iniciar o Servidor ---
 app.listen(PORT, () => {
-    console.log(`🚀 Servidor da máquina de águia (V10) iniciado e rodando na porta ${PORT}`);
+    console.log(`🚀 Servidor da máquina de águia (V11 - Sem MQTT) iniciado e rodando na porta ${PORT}`);
 });
