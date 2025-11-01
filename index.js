@@ -1,38 +1,49 @@
-// Deploy V8 - Corrigindo a lógica de Assinatura
+// V10 - Versão para Railway (lendo variáveis de ambiente)
 const express = require('express');
 const crypto = require('crypto');
 const mercadopago = require('mercadopago');
 const mqtt = require('mqtt');
 
 const app = express();
+// O Railway define a porta pela variável de ambiente PORT
 const PORT = process.env.PORT || 3000;
 
 // =================================================================
-// ⚠️ ATENÇÃO: PREENCHA O SEU ACCESS TOKEN DO MERCADO PAGO ⚠️
+// 🔒 CARREGANDO VARIÁVEIS DE AMBIENTE 🔒
+// (Não preencha nada aqui, vamos configurar isso no Railway)
 // =================================================================
-const MP_ACCESS_TOKEN = 'APP_USR-2337638380276117-092714-fcb4c7f0435c786f6c58a959e3dac448-1036328569'; // 👈 ⚠️ PREENCHA AQUI!
-const MP_WEBHOOK_SECRET = '4e923a13f3eefc2794f5486746713822aeb2894019373ab05813b11f0e5efefa';
-const MQTT_BROKER_URL = 'mqtts://d848ae40758c4732b9333f823b832326.s1.eu.hivemq.cloud:8883';
-// Linha NOVA (usando WebSockets Seguros)
-//const MQTT_BROKER_URL = 'wss://d848ae40758c4732b9333f823b832326.s1.eu.hivemq.cloud/mqtt';
-const MQTT_USERNAME = 'servidor_nodejs';
-const MQTT_PASSWORD = 'Water2025';
-const MQTT_TOPIC_COMANDO = 'watervendor/maquina01/comandos';
+
+const MP_ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN;
+const MP_WEBHOOK_SECRET = process.env.MP_WEBHOOK_SECRET;
+const MQTT_BROKER_URL = process.env.MQTT_BROKER_URL;
+const MQTT_USERNAME = process.env.MQTT_USERNAME;
+const MQTT_PASSWORD = process.env.MQTT_PASSWORD;
+const MQTT_TOPIC_COMANDO = process.env.MQTT_TOPIC_COMANDO;
+
 // =================================================================
+
+// Verificação de inicialização (só para log)
+if (!MP_ACCESS_TOKEN || !MP_WEBHOOK_SECRET || !MQTT_BROKER_URL) {
+    console.error('❌ ERRO FATAL: Variáveis de ambiente (MP_ACCESS_TOKEN, MP_WEBHOOK_SECRET, MQTT_BROKER_URL) não definidas.');
+    // Não paramos o processo para o Render/Railway não entrar em loop de crash
+}
 
 // --- Configuração do Mercado Pago (SDK v3) ---
-console.log('V9 - 🔌 Configurando cliente Mercado Pago (SDK v3)...');
-const mpClient = new mercadopago.MercadoPagoConfig({ access_token: MP_ACCESS_TOKEN });
+console.log('V10 - 🔌 Configurando cliente Mercado Pago (SDK v3)...');
+const mpClient = new mercadopago.MercadoPagoConfig({
+    access_token: MP_ACCESS_TOKEN
+});
 const mpPayment = new mercadopago.Payment(mpClient);
 
+
 // --- Configuração do Cliente MQTT ---
-console.log('V9 - 🔌 Tentando conectar ao Broker MQTT...');
+console.log('V10 - 🔌 Tentando conectar ao Broker MQTT...');
 const mqttClient = mqtt.connect(MQTT_BROKER_URL, {
     username: MQTT_USERNAME,
     password: MQTT_PASSWORD,
-    clientId: 'servidor_nodejs', // ID DEVE SER IGUAL AO NOVO USERNAME
+    clientId: MQTT_USERNAME, // A política do HiveMQ exige que o ID seja igual ao Username
     reconnectPeriod: 5000,
-    keepalive: 30 // 👈 ADICIONE ESTA LINHA
+    keepalive: 30 // Mantém a conexão ativa
 });
 
 // --- LOGS DE EVENTOS MQTT (PARA DEPURAÇÃO) ---
@@ -42,9 +53,8 @@ mqttClient.on('reconnect', () => console.log('🔄 Tentando reconectar ao MQTT..
 mqttClient.on('close', () => console.log('🚪 Conexão MQTT fechada (evento "close").'));
 // --- FIM DOS LOGS MQTT ---
 
+
 // --- Middlewares ---
-// Adiciona o 'verify' para salvar o "rawBody"
-// Precisamos do rawBody ANTES do json() para a Assinatura
 app.use(express.json({
   verify: (req, res, buf) => {
     req.rawBody = buf;
@@ -54,8 +64,9 @@ app.use(express.json({
 // --- Rota de "Saúde" (Health Check) ---
 app.get('/', (req, res) => {
     console.log('ℹ️ Rota / (Health Check) acessada. Servidor está no ar.');
-    res.send('Servidor da Máquina de Água (v8 - Assinatura Fix) está no ar.');
+    res.send('Servidor da Máquina de Água (v10 - Railway) está no ar e operante.');
 });
+
 
 // --- HANDLER GET (PARA DEPURAÇÃO DO 404 DO MP) ---
 app.get('/notificacao-mp', (req, res) => {
@@ -64,20 +75,23 @@ app.get('/notificacao-mp', (req, res) => {
 });
 // --- FIM DO HANDLER ---
 
+
 // =================================================================
 // 🚀 ROTA DE NOTIFICAÇÃO (WEBHOOK) DO MERCADO PAGO 🚀
+// (Lógica de assinatura v8)
 // =================================================================
 app.post('/notificacao-mp', async (req, res) => {
+    
     console.log('--- NOTIFICAÇÃO DO MP RECEBIDA (POST) ---');
     
-    // === INÍCIO DA VALIDAÇÃO DE ASSINATURA (Lógica Corrigida) ===
+    // === INÍCIO DA VALIDAÇÃO DE ASSINATURA ===
     try {
         const signatureHeader = req.headers['x-signature'];
         const requestId = req.headers['x-request-id'];
         
         if (!signatureHeader || !requestId) {
             console.error('❌ Erro de Assinatura: Cabeçalhos (x-signature, x-request-id) ausentes.');
-            return res.sendStatus(400); // Bad Request
+            return res.sendStatus(400); 
         }
 
         const parts = signatureHeader.split(',').reduce((acc, part) => {
@@ -96,40 +110,29 @@ app.post('/notificacao-mp', async (req, res) => {
 
         // A documentação do MP é confusa. O 'id' pode estar no 'query' ou no 'body.data.id'
         const notificationId = req.query.id || req.body.data?.id; 
-        
+
         if (!notificationId) {
             console.error('❌ Erro de Assinatura: ID da notificação (query.id ou body.data.id) está ausente.');
-            // Se o ID for do body, precisamos ter certeza que o body foi parseado
-            console.log("Corpo recebido:", JSON.stringify(req.body));
             return res.sendStatus(400);
         }
 
         const baseString = `id:${notificationId};request-id:${requestId};ts:${ts};`;
-
         const hmac = crypto.createHmac('sha256', MP_WEBHOOK_SECRET);
         hmac.update(baseString);
         const generatedHash = hmac.digest('hex');
 
         if (generatedHash !== receivedHash) {
             console.error('❌ ERRO DE ASSINATURA: Assinatura inválida! Webhook rejeitado.');
-            console.log(`   > Base String usada: ${baseString}`);
-            console.log(`   > Hash Recebido: ${receivedHash}`);
-            console.log(`   > Hash Gerado:   ${generatedHash}`);
             return res.sendStatus(403); // Forbidden
         }
-
         console.log('✅ Assinatura de Webhook validada com sucesso.');
-
     } catch (error) {
         console.error('💥 Erro fatal durante a validação da assinatura:', error.message);
-        console.error("Stack trace:", error.stack);
         return res.sendStatus(500);
     }
     // === FIM DA VALIDAÇÃO DE ASSINATURA ===
     
-    // -----------------------------------------------------------------
-    // (O código de processamento do pagamento começa aqui)
-    // -----------------------------------------------------------------
+    // (O resto do código de processamento de pagamento continua aqui, intacto)
     
     const notificacao = req.body;
     console.log('Conteúdo:', JSON.stringify(notificacao, null, 2));
@@ -176,5 +179,5 @@ app.post('/notificacao-mp', async (req, res) => {
 
 // --- Iniciar o Servidor ---
 app.listen(PORT, () => {
-    console.log(`🚀 Servidor da máquina de águia (V8) iniciado e rodando na porta ${PORT}`);
+    console.log(`🚀 Servidor da máquina de águia (V10) iniciado e rodando na porta ${PORT}`);
 });
