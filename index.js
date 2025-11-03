@@ -1,4 +1,4 @@
-// V13 - Correção Final da Assinatura + MQTT Reativado
+// V13 - Correção Final da Assinatura + MQTT Reativado.
 const express = require('express');
 const crypto = require('crypto');
 const mercadopago = require('mercadopago');
