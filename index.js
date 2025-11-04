@@ -31,7 +31,7 @@ if (!MQTT_TOPIC_COMANDO) { console.error('❌ ERRO FATAL: Variável de ambiente 
 // =================================================================
 
 // --- Configuração do Mercado Pago (SDK v3) ---
-console.log('V14 - 🔌 Configurando cliente Mercado Pago (SDK v3)...');
+console.log('V15 - 🔌 Configurando cliente Mercado Pago (SDK v3)...');
 const mpClient = new mercadopago.MercadoPagoConfig({
     access_token: MP_ACCESS_TOKEN
 });
@@ -39,7 +39,7 @@ const mpPayment = new mercadopago.Payment(mpClient);
 
 // --- Configuração do Cliente MQTT (SÓ CONECTA SE NÃO TIVER ERRO) ---
 if (!hasError) {
-    console.log('V14 - 🔌 Tentando conectar ao Broker MQTT...');
+    console.log('V15 - 🔌 Tentando conectar ao Broker MQTT...');
     const mqttClient = mqtt.connect(MQTT_BROKER_URL, {
         username: MQTT_USERNAME,
         password: MQTT_PASSWORD,
