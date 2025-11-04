@@ -1,4 +1,4 @@
-// V13 - Correção Final da Assinatura + MQTT Reativado.
+// V_FINAL - Versão Completa e Limpa (Koyeb)
 const express = require('express');
 const crypto = require('crypto');
 const mercadopago = require('mercadopago');
@@ -9,7 +9,7 @@ const PORT = process.env.PORT || 3000;
 
 // =================================================================
 // 🔒 CARREGANDO VARIÁVEIS DE AMBIENTE 🔒
-// (O Koyeb já tem estas)
+// (Nós vamos configurar isto no Koyeb no Passo 3)
 // =================================================================
 const MP_ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN;
 const MP_WEBHOOK_SECRET = process.env.MP_WEBHOOK_SECRET;
@@ -25,14 +25,14 @@ if (!MP_ACCESS_TOKEN || !MP_WEBHOOK_SECRET || !MQTT_BROKER_URL) {
 }
 
 // --- Configuração do Mercado Pago (SDK v3) ---
-console.log('V13 - 🔌 Configurando cliente Mercado Pago (SDK v3)...');
+console.log('V_FINAL - 🔌 Configurando cliente Mercado Pago (SDK v3)...');
 const mpClient = new mercadopago.MercadoPagoConfig({
     access_token: MP_ACCESS_TOKEN
 });
 const mpPayment = new mercadopago.Payment(mpClient);
 
 // --- Configuração do Cliente MQTT (REATIVADO) ---
-console.log('V13 - 🔌 Tentando conectar ao Broker MQTT...');
+console.log('V_FINAL - 🔌 Tentando conectar ao Broker MQTT...');
 const mqttClient = mqtt.connect(MQTT_BROKER_URL, {
     username: MQTT_USERNAME,
     password: MQTT_PASSWORD,
@@ -57,8 +57,8 @@ app.use(express.json({
 
 // --- Rota de "Saúde" (Health Check) ---
 app.get('/', (req, res) => {
-    console.log('ℹ️ Rota / (Health Check) acessada. Servidor está no ar (v13).');
-    res.send('Servidor da Máquina de Água (v13 - Final) está no ar e operante.');
+    console.log('ℹ️ Rota / (Health Check) acessada. Servidor está no ar (v_FINAL).');
+    res.send('Servidor da Máquina de Água (v_FINAL) está no ar e operante.');
 });
 
 // --- HANDLER GET (PARA DEPURAÇÃO DO 404 DO MP) ---
@@ -69,6 +69,7 @@ app.get('/notificacao-mp', (req, res) => {
 
 // =================================================================
 // 🚀 ROTA DE NOTIFICAÇÃO (WEBHOOK) DO MERCADO PAGO 🚀
+// (Lógica de assinatura v13 - corrigida)
 // =================================================================
 app.post('/notificacao-mp', async (req, res) => {
     console.log('--- NOTIFICAÇÃO DO MP RECEBIDA (POST) ---');
@@ -98,10 +99,7 @@ app.post('/notificacao-mp', async (req, res) => {
             return res.sendStatus(400);
         }
 
-        // =================================================================
-        // AQUI ESTÁ A CORREÇÃO (v13)
-        // O ID estava em 'req.body.id' (como vimos no Raio-X)
-        // =================================================================
+        // CORREÇÃO: O ID está em req.body.id (como vimos no "Raio-X")
         const notificationId = req.query['data.id'] || req.body.id; 
 
         if (!notificationId) {
@@ -130,43 +128,23 @@ app.post('/notificacao-mp', async (req, res) => {
     // --- Processamento do Pagamento ---
     const notificacao = req.body;
 
-    // O log anterior (topic_merchant_order_wh) nos mostrou que o 'type' não é 'payment'.
-    // Vamos checar o 'type' ou o 'topic'
-    if (notificacao.type === 'payment' || notificacao.topic === 'payment' || notificacao.action === 'payment.created' || notificacao.type === 'topic_merchant_order_wh') {
-        
-        // No log anterior (merchant_order), o ID do pagamento não estava em 'data.id'.
-        // Precisamos de uma notificação de 'payment' real para ver onde ele está.
-        // Vamos assumir que é 'notificacao.data.id' por enquanto.
+    if (notificacao.type === 'payment' || notificacao.topic === 'payment' || notificacao.action === 'payment.created') {
         
         const paymentId = notificacao.data?.id; 
 
         if (!paymentId) {
-            console.warn('⚠️ Notificação não é do tipo "payment" direto ou não tem "data.id". Vamos buscar o "merchant_order".');
-            
-            // Se for um 'merchant_order', o ID do pagamento está em outro lugar
-            if (notificacao.type === 'topic_merchant_order_wh' && notificacao.id) {
-                // Esta é uma ORDEM, não um pagamento. Precisamos buscar a ordem.
-                // Por enquanto, vamos apenas logar e parar.
-                console.log(`ℹ️ Recebido Merchant Order ID: ${notificacao.id}. Status: ${notificacao.status}.`);
-                // Precisaríamos de mais lógica aqui para buscar os pagamentos *dentro* da ordem.
-                // Mas vamos focar no PIX.
-            }
-
-            // Se você fez um pagamento PIX, o evento deve ser 'payment' e não 'merchant_order'.
+            console.warn('⚠️ Notificação de "payment" sem "data.id". Ignorando.');
             return res.sendStatus(200);
         }
         
-        // SE CHEGARMOS AQUI, É UMA NOTIFICAÇÃO DE 'PAYMENT'
         console.log(`🔎 Notificação de pagamento recebida. ID: ${paymentId}. Buscando detalhes...`);
 
         try {
             const paymentDetails = await mpPayment.get({ id: paymentId });
             if (paymentDetails.status === 'approved') {
                 console.log('✅ PAGAMENTO APROVADO! Preparando para enviar comando MQTT...');
-                
                 const mensagemMQTT = 'LIBERAR_AGUA';
                 
-                // REATIVADO!
                 mqttClient.publish(MQTT_TOPIC_COMANDO, mensagemMQTT, (err) => {
                     if (err) {
                         console.error('❌ Erro ao publicar mensagem no MQTT:', err);
@@ -190,5 +168,5 @@ app.post('/notificacao-mp', async (req, res) => {
 
 // --- Iniciar o Servidor ---
 app.listen(PORT, () => {
-    console.log(`🚀 Servidor da máquina de águia (V13 - FINAL) iniciado e rodando na porta ${PORT}`);
+    console.log(`🚀 Servidor da máquina de águia (V_FINAL) iniciado e rodando na porta ${PORT}`);
 });
