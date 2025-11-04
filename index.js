@@ -1,15 +1,14 @@
-// V_FINAL - Versão Completa e Limpa (Koyeb)
+// V14 - "Reset" Final com Verificação Completa de Variáveis
 const express = require('express');
 const crypto = require('crypto');
 const mercadopago = require('mercadopago');
-const mqtt = require('mqtt'); // <-- MQTT REATIVADO
+const mqtt = require('mqtt');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 // =================================================================
 // 🔒 CARREGANDO VARIÁVEIS DE AMBIENTE 🔒
-// (Nós vamos configurar isto no Koyeb no Passo 3)
 // =================================================================
 const MP_ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN;
 const MP_WEBHOOK_SECRET = process.env.MP_WEBHOOK_SECRET;
@@ -19,34 +18,43 @@ const MQTT_PASSWORD = process.env.MQTT_PASSWORD;
 const MQTT_TOPIC_COMANDO = process.env.MQTT_TOPIC_COMANDO;
 // =================================================================
 
-// Verificação de inicialização
-if (!MP_ACCESS_TOKEN || !MP_WEBHOOK_SECRET || !MQTT_BROKER_URL) {
-    console.error('❌ ERRO FATAL: Verifique as Variáveis de Ambiente no Koyeb!');
-}
+// =================================================================
+// 🪲 VERIFICAÇÃO DE ERRO (A CORREÇÃO) 🪲
+// =================================================================
+let hasError = false;
+if (!MP_ACCESS_TOKEN) { console.error('❌ ERRO FATAL: Variável de ambiente MP_ACCESS_TOKEN não definida.'); hasError = true; }
+if (!MP_WEBHOOK_SECRET) { console.error('❌ ERRO FATAL: Variável de ambiente MP_WEBHOOK_SECRET não definida.'); hasError = true; }
+if (!MQTT_BROKER_URL) { console.error('❌ ERRO FATAL: Variável de ambiente MQTT_BROKER_URL não definida.'); hasError = true; }
+if (!MQTT_USERNAME) { console.error('❌ ERRO FATAL: Variável de ambiente MQTT_USERNAME não definida.'); hasError = true; }
+if (!MQTT_PASSWORD) { console.error('❌ ERRO FATAL: Variável de ambiente MQTT_PASSWORD não definida.'); hasError = true; }
+if (!MQTT_TOPIC_COMANDO) { console.error('❌ ERRO FATAL: Variável de ambiente MQTT_TOPIC_COMANDO não definida.'); hasError = true; }
+// =================================================================
 
 // --- Configuração do Mercado Pago (SDK v3) ---
-console.log('V_FINAL - 🔌 Configurando cliente Mercado Pago (SDK v3)...');
+console.log('V14 - 🔌 Configurando cliente Mercado Pago (SDK v3)...');
 const mpClient = new mercadopago.MercadoPagoConfig({
     access_token: MP_ACCESS_TOKEN
 });
 const mpPayment = new mercadopago.Payment(mpClient);
 
-// --- Configuração do Cliente MQTT (REATIVADO) ---
-console.log('V_FINAL - 🔌 Tentando conectar ao Broker MQTT...');
-const mqttClient = mqtt.connect(MQTT_BROKER_URL, {
-    username: MQTT_USERNAME,
-    password: MQTT_PASSWORD,
-    clientId: MQTT_USERNAME, // A política do HiveMQ exige que o ID seja igual ao Username
-    reconnectPeriod: 5000,
-    keepalive: 30 // Mantém a conexão ativa
-});
+// --- Configuração do Cliente MQTT (SÓ CONECTA SE NÃO TIVER ERRO) ---
+if (!hasError) {
+    console.log('V14 - 🔌 Tentando conectar ao Broker MQTT...');
+    const mqttClient = mqtt.connect(MQTT_BROKER_URL, {
+        username: MQTT_USERNAME,
+        password: MQTT_PASSWORD,
+        clientId: MQTT_USERNAME, // A política do HiveMQ exige que o ID seja igual ao Username
+        reconnectPeriod: 5000,
+        keepalive: 30
+    });
 
-// --- LOGS DE EVENTOS MQTT (PARA DEPURAÇÃO) ---
-mqttClient.on('connect', () => console.log('✅ Conectado ao Broker MQTT com sucesso.'));
-mqttClient.on('error', (err) => console.error('❌ Erro na conexão MQTT:', err));
-mqttClient.on('reconnect', () => console.log('🔄 Tentando reconectar ao MQTT...'));
-mqttClient.on('close', () => console.log('🚪 Conexão MQTT fechada (evento "close").'));
-// --- FIM DOS LOGS MQTT ---
+    mqttClient.on('connect', () => console.log('✅ Conectado ao Broker MQTT com sucesso.'));
+    mqttClient.on('error', (err) => console.error('❌ Erro na conexão MQTT:', err.message)); // Log mais limpo
+    mqttClient.on('reconnect', () => console.log('🔄 Tentando reconectar ao MQTT...'));
+    mqttClient.on('close', () => console.log('🚪 Conexão MQTT fechada (evento "close").'));
+} else {
+    console.error('MQTT desativado devido a erros fatais de variável.');
+}
 
 // --- Middlewares ---
 app.use(express.json({
@@ -57,8 +65,8 @@ app.use(express.json({
 
 // --- Rota de "Saúde" (Health Check) ---
 app.get('/', (req, res) => {
-    console.log('ℹ️ Rota / (Health Check) acessada. Servidor está no ar (v_FINAL).');
-    res.send('Servidor da Máquina de Água (v_FINAL) está no ar e operante.');
+    console.log('ℹ️ Rota / (Health Check) acessada. Servidor está no ar (v14).');
+    res.send('Servidor da Máquina de Água (v14 - Final Check) está no ar e operante.');
 });
 
 // --- HANDLER GET (PARA DEPURAÇÃO DO 404 DO MP) ---
@@ -69,9 +77,13 @@ app.get('/notificacao-mp', (req, res) => {
 
 // =================================================================
 // 🚀 ROTA DE NOTIFICAÇÃO (WEBHOOK) DO MERCADO PAGO 🚀
-// (Lógica de assinatura v13 - corrigida)
 // =================================================================
 app.post('/notificacao-mp', async (req, res) => {
+    if (hasError) {
+        console.error('❌ Notificação recebida, mas o servidor está em modo de erro (Variáveis ausentes).');
+        return res.sendStatus(500);
+    }
+    
     console.log('--- NOTIFICAÇÃO DO MP RECEBIDA (POST) ---');
     console.log('Conteúdo (Body) recebido:', JSON.stringify(req.body, null, 2));
 
@@ -98,8 +110,7 @@ app.post('/notificacao-mp', async (req, res) => {
             console.error('❌ Erro de Assinatura: Formato do cabeçalho inválido.');
             return res.sendStatus(400);
         }
-
-        // CORREÇÃO: O ID está em req.body.id (como vimos no "Raio-X")
+        
         const notificationId = req.query['data.id'] || req.body.id; 
 
         if (!notificationId) {
@@ -129,14 +140,11 @@ app.post('/notificacao-mp', async (req, res) => {
     const notificacao = req.body;
 
     if (notificacao.type === 'payment' || notificacao.topic === 'payment' || notificacao.action === 'payment.created') {
-        
         const paymentId = notificacao.data?.id; 
-
         if (!paymentId) {
             console.warn('⚠️ Notificação de "payment" sem "data.id". Ignorando.');
             return res.sendStatus(200);
         }
-        
         console.log(`🔎 Notificação de pagamento recebida. ID: ${paymentId}. Buscando detalhes...`);
 
         try {
@@ -168,5 +176,5 @@ app.post('/notificacao-mp', async (req, res) => {
 
 // --- Iniciar o Servidor ---
 app.listen(PORT, () => {
-    console.log(`🚀 Servidor da máquina de águia (V_FINAL) iniciado e rodando na porta ${PORT}`);
+    console.log(`🚀 Servidor da máquina de águia (V14 - FINAL CHECK) iniciado e rodando na porta ${PORT}`);
 });
