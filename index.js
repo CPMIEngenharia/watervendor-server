@@ -1,14 +1,15 @@
-// V16 - server.js com logs MQTT melhorados
+// ===== PACOTES E CONFIGURAÇÃO INICIAL =====
 require('dotenv').config();
 const express = require('express');
 const crypto = require('crypto');
 const mqtt = require('mqtt');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+// A porta 10000 é a porta padrão que o Render espera.
+const PORT = process.env.PORT || 10000; 
 
-// Middleware para parse do JSON
-//app.use(express.json());
+// ===== MIDDLEWARE JSON COM CAPTURA DE RAW BODY =====
+// Esta é a correção crucial para a validação da assinatura.
 app.use(express.json({
   verify: (req, res, buf) => {
     // Salva o corpo bruto (raw body) em uma nova propriedade 'req.rawBody'
@@ -16,7 +17,7 @@ app.use(express.json({
   }
 }));
 
-// ===== CONFIGURAÇÃO MQTT =====
+// ===== CONFIGURAÇÃO E CONEXÃO MQTT =====
 const MQTT_BROKER_URL = process.env.MQTT_BROKER_URL;
 const MQTT_USERNAME = process.env.MQTT_USERNAME;
 const MQTT_PASSWORD = process.env.MQTT_PASSWORD;
@@ -27,11 +28,10 @@ console.log('   - URL:', MQTT_BROKER_URL ? '***[Presente]***' : '❌ [FALTANDO]'
 console.log('   - Usuário:', MQTT_USERNAME || '❌ [FALTANDO]');
 console.log('   - Tópico:', MQTT_TOPIC_COMANDO);
 
-// Conexão MQTT com opções robustas
 const mqttOptions = {
   username: MQTT_USERNAME,
   password: MQTT_PASSWORD,
-  rejectUnauthorized: false, // Importante para HiveMQ Cloud
+  rejectUnauthorized: false,
 };
 
 console.log('🔄 Tentando conectar ao Broker MQTT...');
@@ -49,8 +49,21 @@ client.on('close', () => {
   console.log('🔌 Conexão MQTT fechada.');
 });
 
-// ===== WEBHOOK MERCADO PAGO =====
-// COLE ESTE BLOCO CORRIGIDO NO LUGAR
+// ===== ROTA DE HEALTH CHECK (PARA O RENDER) =====
+app.get('/', (req, res) => {
+  const statusMQTT = client.connected ? 'Conectado' : 'Desconectado';
+  res.send(`
+    <html>
+      <body>
+        <h1>Servidor WaterVendor Online</h1>
+        <p>Status MQTT: <strong>${statusMQTT}</strong></p>
+        <p>Webhook MP: <code>POST /notificacao-mp</code></p>
+      </body>
+    </html>
+  `);
+});
+
+// ===== ROTA DO WEBHOOK MERCADO PAGO (VERSÃO FINAL COM DEBUG) =====
 app.post('/notificacao-mp', (req, res) => {
   console.log('📥 Webhook recebido do Mercado Pago');
 
@@ -60,9 +73,14 @@ app.post('/notificacao-mp', (req, res) => {
     const payload = req.rawBody; // O corpo bruto que já salvamos
     const secret = process.env.MP_WEBHOOK_SECRET;
 
-    if (!signatureHeader || !payload || !secret) {
-      console.log('❌ Assinatura, Payload ou Segredo ausentes.');
-      return res.status(400).send('Dados de webhook incompletos.');
+    if (!signatureHeader) {
+      console.log('❌ FALHA: Header [x-signature] ausente.');
+      return res.status(400).send('Header ausente.');
+    }
+
+    if (!payload) {
+      console.log('❌ FALHA: [req.rawBody] está vazio ou ausente.');
+      return res.status(400).send('Corpo ausente.');
     }
 
     // 2. Parsear o Header para pegar o timestamp (ts) e o hash (v1)
@@ -87,6 +105,13 @@ app.post('/notificacao-mp', (req, res) => {
     // 5. Comparar o hash do MP (v1) com o nosso hash calculado
     const ourSignatureBuffer = Buffer.from(expectedSignature, 'hex');
     const mpSignatureBuffer = Buffer.from(mpHash, 'hex');
+
+    // ===== LOG DE DEBUG DETALHADO =====
+    console.log('--- DEBUG DE COMPARAÇÃO ---');
+    console.log('HASH (Mercado Pago):', mpHash);
+    console.log('HASH (Nosso Cálculo):', expectedSignature);
+    console.log('--- FIM DO DEBUG ---');
+    // ==================================
 
     if (!crypto.timingSafeEqual(ourSignatureBuffer, mpSignatureBuffer)) {
       // As assinaturas não batem
@@ -122,27 +147,13 @@ app.post('/notificacao-mp', (req, res) => {
     }
 
   } catch (err) {
-    console.log('❌ Assinatura de webhook inválida. Possível tentativa de fraude.');
-    console.log('Erro:', err.message);
+    console.log('❌ Assinatura de webhook inválida.');
+    console.log('Erro:', err.message); // Imprime o erro exato (ex: "Assinaturas não batem.")
     return res.status(401).send('Assinatura inválida');
   }
 });
 
-// Rota de Health Check para o Koyeb
-app.get('/', (req, res) => {
-  const statusMQTT = client.connected ? 'Conectado' : 'Desconectado';
-  res.send(`
-    <html>
-      <body>
-        <h1>Servidor WaterVendor Online</h1>
-        <p>Status MQTT: <strong>${statusMQTT}</strong></p>
-        <p>Webhook MP: <code>POST /notificacao-mp</code></p>
-      </body>
-    </html>
-  `);
-});
-
-// Inicializar Servidor
-app.listen(PORT, '0.0.0.0', () => {
+// ===== INICIAR O SERVIDOR =====
+app.listen(PORT, () => {
   console.log(`🚀 Servidor rodando na porta ${PORT}`);
 });
