@@ -66,7 +66,12 @@ const payload = req.rawBody;
     .createHmac('sha256', process.env.MP_WEBHOOK_SECRET)
     .update(payload)
     .digest('hex');
-
+// ===== LINHAS DE DEBUG TEMPORÁRIAS =====
+console.log('--- INÍCIO DO DEBUG DE ASSINATURA ---');
+console.log('ASSINATURA DO HEADER (MP):', signature);
+console.log('ASSINATURA CALCULADA (Render):', `sha256=${expectedSignature}`);
+console.log('--- FIM DO DEBUG DE ASSINATURA ---');
+// ===== FIM DO DEBUG =====
   if (signature !== `sha256=${expectedSignature}`) {
     console.log('❌ Assinatura de webhook inválida. Possível tentativa de fraude.');
     return res.status(401).send('Assinatura inválida');
