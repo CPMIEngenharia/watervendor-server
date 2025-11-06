@@ -8,7 +8,13 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Middleware para parse do JSON
-app.use(express.json());
+//app.use(express.json());
+app.use(express.json({
+  verify: (req, res, buf) => {
+    // Salva o corpo bruto (raw body) em uma nova propriedade 'req.rawBody'
+    req.rawBody = buf;
+  }
+}));
 
 // ===== CONFIGURAÇÃO MQTT =====
 const MQTT_BROKER_URL = process.env.MQTT_BROKER_URL;
@@ -49,8 +55,8 @@ app.post('/notificacao-mp', (req, res) => {
 
   // 1. Validar Assinatura
   const signature = req.headers['x-signature'] || req.headers['x-signature-sha256'];
-  const payload = JSON.stringify(req.body);
-
+ // const payload = JSON.stringify(req.body);
+const payload = req.rawBody;
   if (!signature) {
     console.log('❌ Assinatura ausente no webhook.');
     return res.status(400).send('Assinatura ausente');
