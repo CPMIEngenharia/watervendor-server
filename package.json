@@ -1,18 +1,23 @@
 {
   "name": "watervendor-server",
   "version": "1.0.0",
-  "description": "",
+  "description": "Servidor para Webhook Mercado Pago + MQTT",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "dev": "node index.js"
   },
-  "keywords": [],
+  "keywords": ["mqtt", "mercadopago", "webhook"],
   "author": "",
   "license": "ISC",
   "dependencies": {
     "axios": "^1.7.2",
+    "dotenv": "^16.4.7",
     "express": "^4.19.2",
     "mercadopago": "^2.9.0",
     "mqtt": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }
