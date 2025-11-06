@@ -50,60 +50,81 @@ client.on('close', () => {
 });
 
 // ===== WEBHOOK MERCADO PAGO =====
+// COLE ESTE BLOCO CORRIGIDO NO LUGAR
 app.post('/notificacao-mp', (req, res) => {
   console.log('📥 Webhook recebido do Mercado Pago');
 
-  // 1. Validar Assinatura
-  const signature = req.headers['x-signature'] || req.headers['x-signature-sha256'];
- // const payload = JSON.stringify(req.body);
-const payload = req.rawBody;
-  if (!signature) {
-    console.log('❌ Assinatura ausente no webhook.');
-    return res.status(400).send('Assinatura ausente');
-  }
+  try {
+    // 1. Pegar o Header e o Segredo
+    const signatureHeader = req.headers['x-signature'] || req.headers['x-signature-sha256'];
+    const payload = req.rawBody; // O corpo bruto que já salvamos
+    const secret = process.env.MP_WEBHOOK_SECRET;
 
-  const expectedSignature = crypto
-    .createHmac('sha256', process.env.MP_WEBHOOK_SECRET)
-    .update(payload)
-    .digest('hex');
-// ===== LINHAS DE DEBUG TEMPORÁRIAS =====
-console.log('--- INÍCIO DO DEBUG DE ASSINATURA ---');
-console.log('ASSINATURA DO HEADER (MP):', signature);
-console.log('ASSINATURA CALCULADA (Render):', `sha256=${expectedSignature}`);
-console.log('--- FIM DO DEBUG DE ASSINATURA ---');
-// ===== FIM DO DEBUG =====
-  if (signature !== `sha256=${expectedSignature}`) {
-    console.log('❌ Assinatura de webhook inválida. Possível tentativa de fraude.');
-    return res.status(401).send('Assinatura inválida');
-  }
-
-  console.log('✅ Assinatura de webhook validada.');
-
-  // 2. Processar o Pagamento (Foco na Aprovação)
-  const { type, data } = req.body;
-
-  if (type === 'payment' && data.id) {
-    console.log(`💰 Processando pagamento: ${data.id}`);
-    // Aqui você normalmente buscaria detalhes do pagamento na API do MP
-    // Para simulação, vamos assumir que foi aprovado.
-
-    // 3. Publicar comando MQTT
-    if (client.connected) {
-      const comando = 'LIBERAR_AGUA';
-      client.publish(MQTT_TOPIC_COMANDO, comando, { qos: 1 }, (err) => {
-        if (err) {
-          console.log('❌ Erro ao publicar comando MQTT:', err);
-        } else {
-          console.log(`✅ Comando MQTT "${comando}" publicado no tópico: ${MQTT_TOPIC_COMANDO}`);
-        }
-      });
-    } else {
-      console.log('❌ Broker MQTT não conectado. Comando não enviado.');
+    if (!signatureHeader || !payload || !secret) {
+      console.log('❌ Assinatura, Payload ou Segredo ausentes.');
+      return res.status(400).send('Dados de webhook incompletos.');
     }
 
-    res.status(200).json({ status: 'Webhook processado', comando: 'LIBERAR_AGUA' });
-  } else {
-    res.status(200).json({ status: 'Webhook ignorado (não é pagamento)' });
+    // 2. Parsear o Header para pegar o timestamp (ts) e o hash (v1)
+    const parts = signatureHeader.split(',');
+    const timestamp = parts.find(part => part.startsWith('ts=')).split('=')[1];
+    const mpHash = parts.find(part => part.startsWith('v1=')).split('=')[1];
+
+    if (!timestamp || !mpHash) {
+      console.log('❌ Header de assinatura malformado.');
+      return res.status(400).send('Header malformado.');
+    }
+
+    // 3. Criar a "Base String" que o MP realmente assina: timestamp + "." + corpo_bruto
+    const manifest = `${timestamp}.${payload.toString()}`;
+
+    // 4. Calcular nossa própria assinatura usando o Segredo
+    const expectedSignature = crypto
+      .createHmac('sha256', secret)
+      .update(manifest)
+      .digest('hex');
+
+    // 5. Comparar o hash do MP (v1) com o nosso hash calculado
+    const ourSignatureBuffer = Buffer.from(expectedSignature, 'hex');
+    const mpSignatureBuffer = Buffer.from(mpHash, 'hex');
+
+    if (!crypto.timingSafeEqual(ourSignatureBuffer, mpSignatureBuffer)) {
+      // As assinaturas não batem
+      throw new Error('Assinaturas não batem.');
+    }
+
+    // 6. SUCESSO! A assinatura é válida.
+    console.log('✅ Assinatura de webhook validada.');
+
+    // 7. Processar o Pagamento (Foco na Aprovação)
+    const { type, data } = req.body; // Usamos o req.body (parseado) só agora
+
+    if (type === 'payment' && data.id) {
+      console.log(`💰 Processando pagamento: ${data.id}`);
+
+      // 8. Publicar comando MQTT
+      if (client.connected) {
+        const comando = 'LIBERAR_AGUA';
+        client.publish(MQTT_TOPIC_COMANDO, comando, { qos: 1 }, (err) => {
+          if (err) {
+            console.log('❌ Erro ao publicar comando MQTT:', err);
+          } else {
+            console.log(`✅ Comando MQTT "${comando}" publicado no tópico: ${MQTT_TOPIC_COMANDO}`);
+          }
+        });
+      } else {
+        console.log('❌ Broker MQTT não conectado. Comando não enviado.');
+      }
+
+      res.status(200).json({ status: 'Webhook processado', comando: 'LIBERAR_AGUA' });
+    } else {
+      res.status(200).json({ status: 'Webhook ignorado (não é pagamento)' });
+    }
+
+  } catch (err) {
+    console.log('❌ Assinatura de webhook inválida. Possível tentativa de fraude.');
+    console.log('Erro:', err.message);
+    return res.status(401).send('Assinatura inválida');
   }
 });
 
