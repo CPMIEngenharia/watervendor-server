@@ -1,5 +1,5 @@
-// V_FINAL_CORRIGIDO
-// Corrigido o bug 'access_token' vs 'accessToken' na SDK v3 do MP
+// V_FINAL_DE_VERDADE
+// Aceita tanto 'payment' (testes) quanto 'topic_merchant_order_wh' (PIX real)
 
 require('dotenv').config();
 const express = require('express');
@@ -29,15 +29,9 @@ if (!MP_ACCESS_TOKEN || !MQTT_BROKER_URL || !MQTT_USERNAME || !MQTT_PASSWORD) {
 
 // --- Configuração do Mercado Pago (SDK v3) ---
 console.log('🔌 Configurando cliente Mercado Pago (SDK v3)...');
-
-// #################################################################
-// ESTA É A CORREÇÃO: 'accessToken' (camelCase)
-// #################################################################
 const mpClient = new mercadopago.MercadoPagoConfig({
-    accessToken: MP_ACCESS_TOKEN 
+    accessToken: MP_ACCESS_TOKEN // Correção 'accessToken' (camelCase)
 });
-// #################################################################
-
 const mpPayment = new mercadopago.Payment(mpClient);
 
 // --- Configuração do Cliente MQTT ---
@@ -63,7 +57,7 @@ app.get('/', (req, res) => {
     res.send(`
       <html>
         <body>
-          <h1>Servidor WaterVendor Online (V_FINAL_CORRIGIDO)</h1>
+          <h1>Servidor WaterVendor Online (V_FINAL_DE_VERDADE)</h1>
           <p>Status MQTT: <strong>${statusMQTT}</strong></p>
         </body>
       </html>
@@ -80,17 +74,23 @@ app.post('/notificacao-mp', async (req, res) => {
     const notificacao = req.body;
     console.log('Conteúdo (Body) recebido:', JSON.stringify(notificacao, null, 2));
 
-    if (notificacao.type === 'payment' || notificacao.type === 'topic_merchant_order_wh') { 
+    // #################################################################
+    // ESTA É A CORREÇÃO FINAL: Aceita 'payment' OU 'topic_merchant_order_wh'
+    // #################################################################
+    if (notificacao.type === 'payment' || notificacao.type === 'topic_merchant_order_wh') {
+        
+        // O 'paymentId' está em 'data.id' para ambos os tipos de evento
+        const paymentId = notificacao.data?.id; 
         
         if (!paymentId) {
-            console.warn('⚠️ Notificação de "payment" sem "data.id". Ignorando.');
+            console.warn('⚠️ Notificação sem "data.id". Ignorando.');
             return res.sendStatus(200); 
         }
         
         console.log(`🔎 Notificação de pagamento ID: ${paymentId}. Buscando detalhes...`);
 
         try {
-            // Esta chamada agora deve funcionar
+            // Esta chamada AGORA VAI FUNCIONAR, pois o access token está correto
             const paymentDetails = await mpPayment.get({ id: paymentId });
             
             if (paymentDetails.status === 'approved') {
@@ -112,11 +112,12 @@ app.post('/notificacao-mp', async (req, res) => {
                 console.log(`⏳ Pagamento ${paymentId} ainda está "${paymentDetails.status}". Aguardando.`);
             }
         } catch (error) {
-            // Aqui vamos imprimir o erro completo para ver o que é
+            // Se o ID for de teste (123456), vai cair aqui com "Payment not found"
+            // Se o ID for real e o token estiver errado, cai aqui (mas já provamos que o token está certo)
             console.error(`💥 Erro ao buscar detalhes do pagamento ${paymentId}:`, error);
         }
     } else {
-        console.log(`ℹ️ Recebido evento do tipo "${notificacao.type}". Ignorando (focando em "payment").`);
+        console.log(`ℹ️ Recebido evento do tipo "${notificacao.type}". Ignorando (focando nos eventos corretos).`);
     }
 
     res.sendStatus(200);
