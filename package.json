@@ -1,7 +1,7 @@
 {
   "name": "watervendor-server",
-  "version": "1.0.1",
-  "description": "Servidor de backend para WaterVendor (Versão PIX funcional)",
+  "version": "1.0.0",
+  "description": "Servidor de backend para WaterVendor (Versão PIX funcional com Axios)",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
@@ -9,15 +9,16 @@
   "keywords": [
     "mqtt",
     "mercadopago",
-    "render"
+    "render",
+    "axios"
   ],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "dotenv": "^16.4.5",
+    "axios": "^1.7.2",
     "express": "^4.19.2",
-    "mercadopago": "^2.9.0",
-    "mqtt": "^5.7.0"
+    "mqtt": "^5.7.0",
+    "dotenv": "^16.4.5"
   },
   "engines": {
     "node": ">=18.0.0"
