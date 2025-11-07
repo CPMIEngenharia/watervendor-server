@@ -71,7 +71,7 @@ app.post('/notificacao-mp', (req, res) => {
     // 1. Pegar o Header e o Segredo
     const signatureHeader = req.headers['x-signature'] || req.headers['x-signature-sha256'];
     const payload = req.rawBody; // O corpo bruto que já salvamos
-    const secret = process.env.MP_WEBHOOK_SECRET;
+    const secret = process.env.MP_WEBHOOK_SECRET_NOVA;
 
     if (!signatureHeader) {
       console.log('❌ FALHA: Header [x-signature] ausente.');
