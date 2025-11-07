@@ -80,8 +80,7 @@ app.post('/notificacao-mp', async (req, res) => {
     const notificacao = req.body;
     console.log('Conteúdo (Body) recebido:', JSON.stringify(notificacao, null, 2));
 
-    if (notificacao.type === 'payment') {
-        const paymentId = notificacao.data?.id; 
+    if (notificacao.type === 'payment' || notificacao.type === 'topic_merchant_order_wh') { 
         
         if (!paymentId) {
             console.warn('⚠️ Notificação de "payment" sem "data.id". Ignorando.');
