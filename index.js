@@ -1,159 +1,134 @@
-// ===== PACOTES E CONFIGURAÇÃO INICIAL =====
-require('dotenv').config();
+// V_RESET_PIX_FUNCIONAL
+// Voltando ao código que funcionava (sem validação de assinatura)
+// e usando a porta correta do Render.
+
+require('dotenv').config(); // <-- Mantendo o dotenv para carregar as chaves
 const express = require('express');
-const crypto = require('crypto');
+const mercadopago = require('mercadopago');
 const mqtt = require('mqtt');
 
 const app = express();
-// A porta 10000 é a porta padrão que o Render espera.
-const PORT = process.env.PORT || 10000; 
+// O Render define a porta pela variável de ambiente PORT, ou 10000
+const PORT = process.env.PORT || 10000;
 
-// ===== MIDDLEWARE JSON COM CAPTURA DE RAW BODY =====
-// Esta é a correção crucial para a validação da assinatura.
-app.use(express.json({
-  verify: (req, res, buf) => {
-    // Salva o corpo bruto (raw body) em uma nova propriedade 'req.rawBody'
-    req.rawBody = buf;
-  }
-}));
-
-// ===== CONFIGURAÇÃO E CONEXÃO MQTT =====
+// =================================================================
+// 🔒 CARREGANDO VARIÁVEIS DE AMBIENTE 🔒
+// =================================================================
+const MP_ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN;
 const MQTT_BROKER_URL = process.env.MQTT_BROKER_URL;
 const MQTT_USERNAME = process.env.MQTT_USERNAME;
 const MQTT_PASSWORD = process.env.MQTT_PASSWORD;
-const MQTT_TOPIC_COMANDO = process.env.MQTT_TOPIC_COMANDO || 'watervendor/maquina01/comandos';
+const MQTT_TOPIC_COMANDO = process.env.MQTT_TOPIC_COMANDO;
 
-console.log('🔧 Configurações MQTT Carregadas:');
-console.log('   - URL:', MQTT_BROKER_URL ? '***[Presente]***' : '❌ [FALTANDO]');
-console.log('   - Usuário:', MQTT_USERNAME || '❌ [FALTANDO]');
-console.log('   - Tópico:', MQTT_TOPIC_COMANDO);
+// Verificação de inicialização
+if (!MP_ACCESS_TOKEN || !MQTT_BROKER_URL || !MQTT_USERNAME || !MQTT_PASSWORD) {
+    console.error('❌ ERRO FATAL: Verifique as Variáveis de Ambiente no RENDER!');
+    console.log('MP_ACCESS_TOKEN:', MP_ACCESS_TOKEN ? 'OK' : 'FALTANDO');
+    console.log('MQTT_BROKER_URL:', MQTT_BROKER_URL ? 'OK' : 'FALTANDO');
+    console.log('MQTT_USERNAME:', MQTT_USERNAME ? 'OK' : 'FALTANDO');
+    console.log('MQTT_PASSWORD:', MQTT_PASSWORD ? 'OK' : 'FALTANDO');
+}
 
-const mqttOptions = {
-  username: MQTT_USERNAME,
-  password: MQTT_PASSWORD,
-  rejectUnauthorized: false,
-};
+// --- Configuração do Mercado Pago (SDK v3) ---
+console.log('🔌 Configurando cliente Mercado Pago (SDK v3)...');
+const mpClient = new mercadopago.MercadoPagoConfig({
+    access_token: MP_ACCESS_TOKEN
+});
+const mpPayment = new mercadopago.Payment(mpClient);
 
-console.log('🔄 Tentando conectar ao Broker MQTT...');
-const client = mqtt.connect(MQTT_BROKER_URL, mqttOptions);
-
-client.on('connect', () => {
-  console.log('✅ Conectado ao Broker MQTT com sucesso!');
+// --- Configuração do Cliente MQTT ---
+console.log(`🔌 Tentando conectar ao Broker MQTT como usuário: ${MQTT_USERNAME}...`);
+const mqttClient = mqtt.connect(MQTT_BROKER_URL, {
+    username: MQTT_USERNAME,
+    password: MQTT_PASSWORD,
+    clientId: `server_${Math.random().toString(16).slice(2, 8)}`, // ID de cliente único
+    reconnectPeriod: 5000,
+    keepalive: 30
 });
 
-client.on('error', (err) => {
-  console.log('❌ Erro na conexão MQTT:', err.message);
-});
+mqttClient.on('connect', () => console.log('✅ Conectado ao Broker MQTT com sucesso.'));
+mqttClient.on('error', (err) => console.error('❌ Erro na conexão MQTT:', err.message));
+mqttClient.on('close', () => console.log('🚪 Conexão MQTT fechada (evento "close").'));
 
-client.on('close', () => {
-  console.log('🔌 Conexão MQTT fechada.');
-});
+// --- Middlewares ---
+// Este código NÃO precisa do rawBody, então usamos o express.json() simples
+app.use(express.json());
 
-// ===== ROTA DE HEALTH CHECK (PARA O RENDER) =====
+// --- Rota de "Saúde" (Health Check) ---
 app.get('/', (req, res) => {
-  const statusMQTT = client.connected ? 'Conectado' : 'Desconectado';
-  res.send(`
-    <html>
-      <body>
-        <h1>Servidor WaterVendor Online</h1>
-        <p>Status MQTT: <strong>${statusMQTT}</strong></p>
-        <p>Webhook MP: <code>POST /notificacao-mp</code></p>
-      </body>
-    </html>
-  `);
+    const statusMQTT = mqttClient.connected ? 'Conectado' : 'Desconectado';
+    res.send(`
+      <html>
+        <body>
+          <h1>Servidor WaterVendor Online (V_RESET_PIX_FUNCIONAL)</h1>
+          <p>Status MQTT: <strong>${statusMQTT}</strong></p>
+        </body>
+      </html>
+    `);
 });
 
-// ===== ROTA DO WEBHOOK MERCADO PAGO (VERSÃO FINAL COM DEBUG) =====
-app.post('/notificacao-mp', (req, res) => {
-  console.log('📥 Webhook recebido do Mercado Pago');
+// =================================================================
+// 🚀 ROTA DE NOTIFICAÇÃO (WEBHOOK) DO MERCADO PAGO 🚀
+// (Versão SIMPLES, SEM Assinatura Secreta)
+// =================================================================
+app.post('/notificacao-mp', async (req, res) => {
+    console.log('--- 📥 NOTIFICAÇÃO DO MP RECEBIDA ---');
+    
+    // --- SEM VALIDAÇÃO DE ASSINATURA ---
+    console.log('ℹ️ Validação de Assinatura IGNORADA (Modo PIX Funcional).');
 
-  try {
-    // 1. Pegar o Header e o Segredo
-    const signatureHeader = req.headers['x-signature'] || req.headers['x-signature-sha256'];
-    const payload = req.rawBody; // O corpo bruto que já salvamos
-    const secret = process.env.MP_WEBHOOK_SECRET_NOVA;
+    // --- Processamento do Pagamento ---
+    const notificacao = req.body;
+    console.log('Conteúdo (Body) recebido:', JSON.stringify(notificacao, null, 2));
 
-    if (!signatureHeader) {
-      console.log('❌ FALHA: Header [x-signature] ausente.');
-      return res.status(400).send('Header ausente.');
-    }
+    // Verificamos se é uma notificação de "payment"
+    if (notificacao.type === 'payment') {
+        const paymentId = notificacao.data?.id; 
+        
+        if (!paymentId) {
+            console.warn('⚠️ Notificação de "payment" sem "data.id". Ignorando.');
+            // Respondemos 200 para o MP parar de tentar
+            return res.sendStatus(200); 
+        }
+        
+        console.log(`🔎 Notificação de pagamento ID: ${paymentId}. Buscando detalhes...`);
 
-    if (!payload) {
-      console.log('❌ FALHA: [req.rawBody] está vazio ou ausente.');
-      return res.status(400).send('Corpo ausente.');
-    }
-
-    // 2. Parsear o Header para pegar o timestamp (ts) e o hash (v1)
-    const parts = signatureHeader.split(',');
-    const timestamp = parts.find(part => part.startsWith('ts=')).split('=')[1];
-    const mpHash = parts.find(part => part.startsWith('v1=')).split('=')[1];
-
-    if (!timestamp || !mpHash) {
-      console.log('❌ Header de assinatura malformado.');
-      return res.status(400).send('Header malformado.');
-    }
-
-    // 3. Criar a "Base String" que o MP realmente assina: timestamp + "." + corpo_bruto
-    const manifest = `${timestamp}.${payload.toString()}`;
-
-    // 4. Calcular nossa própria assinatura usando o Segredo
-    const expectedSignature = crypto
-      .createHmac('sha256', secret)
-      .update(manifest)
-      .digest('hex');
-
-    // 5. Comparar o hash do MP (v1) com o nosso hash calculado
-    const ourSignatureBuffer = Buffer.from(expectedSignature, 'hex');
-    const mpSignatureBuffer = Buffer.from(mpHash, 'hex');
-
-    // ===== LOG DE DEBUG DETALHADO =====
-    console.log('--- DEBUG DE COMPARAÇÃO ---');
-    console.log('HASH (Mercado Pago):', mpHash);
-    console.log('HASH (Nosso Cálculo):', expectedSignature);
-    console.log('--- FIM DO DEBUG ---');
-    // ==================================
-
-    if (!crypto.timingSafeEqual(ourSignatureBuffer, mpSignatureBuffer)) {
-      // As assinaturas não batem
-      throw new Error('Assinaturas não batem.');
-    }
-
-    // 6. SUCESSO! A assinatura é válida.
-    console.log('✅ Assinatura de webhook validada.');
-
-    // 7. Processar o Pagamento (Foco na Aprovação)
-    const { type, data } = req.body; // Usamos o req.body (parseado) só agora
-
-    if (type === 'payment' && data.id) {
-      console.log(`💰 Processando pagamento: ${data.id}`);
-
-      // 8. Publicar comando MQTT
-      if (client.connected) {
-        const comando = 'LIBERAR_AGUA';
-        client.publish(MQTT_TOPIC_COMANDO, comando, { qos: 1 }, (err) => {
-          if (err) {
-            console.log('❌ Erro ao publicar comando MQTT:', err);
-          } else {
-            console.log(`✅ Comando MQTT "${comando}" publicado no tópico: ${MQTT_TOPIC_COMANDO}`);
-          }
-        });
-      } else {
-        console.log('❌ Broker MQTT não conectado. Comando não enviado.');
-      }
-
-      res.status(200).json({ status: 'Webhook processado', comando: 'LIBERAR_AGUA' });
+        try {
+            // Buscamos os detalhes do pagamento na API do MP
+            const paymentDetails = await mpPayment.get({ id: paymentId });
+            
+            // Verificamos o status
+            if (paymentDetails.status === 'approved') {
+                console.log('✅ PAGAMENTO APROVADO! Preparando para enviar comando MQTT...');
+                const mensagemMQTT = 'LIBERAR_AGUA';
+                
+                if (mqttClient.connected) {
+                    mqttClient.publish(MQTT_TOPIC_COMANDO, mensagemMQTT, { qos: 1 }, (err) => {
+                        if (err) {
+                            console.error('❌ Erro ao publicar mensagem no MQTT:', err);
+                        } else {
+                            console.log(`🚀 Comando "${mensagemMQTT}" publicado com sucesso no tópico "${MQTT_TOPIC_COMANDO}".`);
+                        }
+                    });
+                } else {
+                     console.error('❌ ERRO CRÍTICO: MQTT não conectado. Comando NÃO enviado.');
+                }
+            } else {
+                console.log(`⏳ Pagamento ${paymentId} ainda está "${paymentDetails.status}". Aguardando.`);
+            }
+        } catch (error) {
+            console.error(`💥 Erro ao buscar detalhes do pagamento ${paymentId}:`, error.message);
+        }
     } else {
-      res.status(200).json({ status: 'Webhook ignorado (não é pagamento)' });
+        console.log(`ℹ️ Recebido evento do tipo "${notificacao.type}". Ignorando (focando em "payment").`);
     }
 
-  } catch (err) {
-    console.log('❌ Assinatura de webhook inválida.');
-    console.log('Erro:', err.message); // Imprime o erro exato (ex: "Assinaturas não batem.")
-    return res.status(401).send('Assinatura inválida');
-  }
+    // Respondemos 200 (OK) para o MP, não importa o que aconteça,
+    // para ele parar de enviar este webhook.
+    res.sendStatus(200);
 });
 
-// ===== INICIAR O SERVIDOR =====
+// --- Iniciar o Servidor ---
 app.listen(PORT, () => {
-  console.log(`🚀 Servidor rodando na porta ${PORT}`);
+    console.log(`🚀 Servidor rodando na porta ${PORT}`);
 });
