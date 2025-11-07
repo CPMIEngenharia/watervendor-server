@@ -1,14 +1,12 @@
-// V_RESET_PIX_FUNCIONAL
-// Voltando ao código que funcionava (sem validação de assinatura)
-// e usando a porta correta do Render.
+// V_FINAL_CORRIGIDO
+// Corrigido o bug 'access_token' vs 'accessToken' na SDK v3 do MP
 
-require('dotenv').config(); // <-- Mantendo o dotenv para carregar as chaves
+require('dotenv').config();
 const express = require('express');
 const mercadopago = require('mercadopago');
 const mqtt = require('mqtt');
 
 const app = express();
-// O Render define a porta pela variável de ambiente PORT, ou 10000
 const PORT = process.env.PORT || 10000;
 
 // =================================================================
@@ -31,9 +29,15 @@ if (!MP_ACCESS_TOKEN || !MQTT_BROKER_URL || !MQTT_USERNAME || !MQTT_PASSWORD) {
 
 // --- Configuração do Mercado Pago (SDK v3) ---
 console.log('🔌 Configurando cliente Mercado Pago (SDK v3)...');
+
+// #################################################################
+// ESTA É A CORREÇÃO: 'accessToken' (camelCase)
+// #################################################################
 const mpClient = new mercadopago.MercadoPagoConfig({
-    access_token: MP_ACCESS_TOKEN
+    accessToken: MP_ACCESS_TOKEN 
 });
+// #################################################################
+
 const mpPayment = new mercadopago.Payment(mpClient);
 
 // --- Configuração do Cliente MQTT ---
@@ -41,7 +45,7 @@ console.log(`🔌 Tentando conectar ao Broker MQTT como usuário: ${MQTT_USERNAM
 const mqttClient = mqtt.connect(MQTT_BROKER_URL, {
     username: MQTT_USERNAME,
     password: MQTT_PASSWORD,
-    clientId: `server_${Math.random().toString(16).slice(2, 8)}`, // ID de cliente único
+    clientId: `server_${Math.random().toString(16).slice(2, 8)}`,
     reconnectPeriod: 5000,
     keepalive: 30
 });
@@ -51,7 +55,6 @@ mqttClient.on('error', (err) => console.error('❌ Erro na conexão MQTT:', err.
 mqttClient.on('close', () => console.log('🚪 Conexão MQTT fechada (evento "close").'));
 
 // --- Middlewares ---
-// Este código NÃO precisa do rawBody, então usamos o express.json() simples
 app.use(express.json());
 
 // --- Rota de "Saúde" (Health Check) ---
@@ -60,7 +63,7 @@ app.get('/', (req, res) => {
     res.send(`
       <html>
         <body>
-          <h1>Servidor WaterVendor Online (V_RESET_PIX_FUNCIONAL)</h1>
+          <h1>Servidor WaterVendor Online (V_FINAL_CORRIGIDO)</h1>
           <p>Status MQTT: <strong>${statusMQTT}</strong></p>
         </body>
       </html>
@@ -69,35 +72,28 @@ app.get('/', (req, res) => {
 
 // =================================================================
 // 🚀 ROTA DE NOTIFICAÇÃO (WEBHOOK) DO MERCADO PAGO 🚀
-// (Versão SIMPLES, SEM Assinatura Secreta)
 // =================================================================
 app.post('/notificacao-mp', async (req, res) => {
     console.log('--- 📥 NOTIFICAÇÃO DO MP RECEBIDA ---');
-    
-    // --- SEM VALIDAÇÃO DE ASSINATURA ---
     console.log('ℹ️ Validação de Assinatura IGNORADA (Modo PIX Funcional).');
 
-    // --- Processamento do Pagamento ---
     const notificacao = req.body;
     console.log('Conteúdo (Body) recebido:', JSON.stringify(notificacao, null, 2));
 
-    // Verificamos se é uma notificação de "payment"
     if (notificacao.type === 'payment') {
         const paymentId = notificacao.data?.id; 
         
         if (!paymentId) {
             console.warn('⚠️ Notificação de "payment" sem "data.id". Ignorando.');
-            // Respondemos 200 para o MP parar de tentar
             return res.sendStatus(200); 
         }
         
         console.log(`🔎 Notificação de pagamento ID: ${paymentId}. Buscando detalhes...`);
 
         try {
-            // Buscamos os detalhes do pagamento na API do MP
+            // Esta chamada agora deve funcionar
             const paymentDetails = await mpPayment.get({ id: paymentId });
             
-            // Verificamos o status
             if (paymentDetails.status === 'approved') {
                 console.log('✅ PAGAMENTO APROVADO! Preparando para enviar comando MQTT...');
                 const mensagemMQTT = 'LIBERAR_AGUA';
@@ -117,14 +113,13 @@ app.post('/notificacao-mp', async (req, res) => {
                 console.log(`⏳ Pagamento ${paymentId} ainda está "${paymentDetails.status}". Aguardando.`);
             }
         } catch (error) {
-            console.error(`💥 Erro ao buscar detalhes do pagamento ${paymentId}:`, error.message);
+            // Aqui vamos imprimir o erro completo para ver o que é
+            console.error(`💥 Erro ao buscar detalhes do pagamento ${paymentId}:`, error);
         }
     } else {
         console.log(`ℹ️ Recebido evento do tipo "${notificacao.type}". Ignorando (focando em "payment").`);
     }
 
-    // Respondemos 200 (OK) para o MP, não importa o que aconteça,
-    // para ele parar de enviar este webhook.
     res.sendStatus(200);
 });
 
