@@ -1,14 +1,13 @@
-// V_RESET_FUNCIONAL
-// Este código é baseado no seu backup que funcionava com PIX (usando Axios),
-// mas modificado para rodar no Render (lendo process.env).
+// V_FINAL_DE_VERDADE
+// Baseado no V_RESET_FUNCIONAL (Axios), mas corrige a captura do paymentId.
 
-require('dotenv').config(); // Para carregar variáveis de ambiente
+require('dotenv').config(); 
 const express = require('express');
 const mqtt = require('mqtt');
-const axios = require('axios'); // Usando Axios, como no seu código original
+const axios = require('axios'); 
 
 const app = express();
-const PORT = process.env.PORT || 10000; // Porta correta para o Render
+const PORT = process.env.PORT || 10000; 
 
 // =================================================================
 // 🔒 CARREGANDO VARIÁVEIS DE AMBIENTE (O jeito do Render) 🔒
@@ -45,12 +44,11 @@ client.on('error', (err) => console.error('❌ Erro de conexão com o Broker MQT
 
 app.use(express.json());
 
-app.get('/', (req, res) => res.send('Servidor WaterVendor (V_RESET_FUNCIONAL) está no ar!'));
+app.get('/', (req, res) => res.send('Servidor WaterVendor (V_FINAL_DE_VERDADE) está no ar!'));
 
 // =================================================================
 // 🚀 ROTA DE NOTIFICAÇÃO (Lógica do seu código original) 🚀
 // =================================================================
-// Usando a rota que está configurada no MP: /notificacao-mp
 app.post('/notificacao-mp', async (req, res) => {
   console.log('--- 📥 NOTIFICAÇÃO DO MP RECEBIDA ---');
   console.log('Conteúdo:', req.body);
@@ -58,14 +56,18 @@ app.post('/notificacao-mp', async (req, res) => {
   const notificacao = req.body;
   const action = notificacao.action;
   const type = notificacao.type;
-  const data = notificacao.data;
 
-  // ESTE IF ACEITA TODOS OS EVENTOS DE PAGAMENTO QUE VIMOS
+  // ESTE IF ACEITA TODOS OS EVENTOS DE PAGAMENTO
   if (action === 'payment.updated' || type === 'payment' || type === 'topic_merchant_order_wh') {
     
-    const paymentId = data?.id;
+    // #################################################################
+    // A CORREÇÃO FINAL ESTÁ AQUI
+    // Pega o ID de 'data.id' (para testes) OU de 'id' (para PIX real)
+    // #################################################################
+    const paymentId = notificacao.data?.id || notificacao.id;
+
     if (!paymentId) {
-        console.warn('⚠️ Notificação sem "data.id". Ignorando.');
+        console.warn('⚠️ Notificação sem "data.id" ou "id". Ignorando.');
         return res.status(200).send('OK');
     }
 
