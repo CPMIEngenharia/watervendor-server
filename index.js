@@ -1,5 +1,6 @@
-// V_FINAL_DE_VERDADE
-// Baseado no V_RESET_FUNCIONAL (Axios), mas corrige a captura do paymentId.
+// V_PRODUCAO_FINAL
+// Código 100% funcional.
+// Adiciona a leitura do campo "tópico" (em português) para evitar logs "ignorados".
 
 require('dotenv').config(); 
 const express = require('express');
@@ -44,7 +45,7 @@ client.on('error', (err) => console.error('❌ Erro de conexão com o Broker MQT
 
 app.use(express.json());
 
-app.get('/', (req, res) => res.send('Servidor WaterVendor (V_FINAL_DE_VERDADE) está no ar!'));
+app.get('/', (req, res) => res.send('Servidor WaterVendor (V_PRODUCAO_FINAL) está no ar!'));
 
 // =================================================================
 // 🚀 ROTA DE NOTIFICAÇÃO (Lógica do seu código original) 🚀
@@ -54,20 +55,26 @@ app.post('/notificacao-mp', async (req, res) => {
   console.log('Conteúdo:', req.body);
   
   const notificacao = req.body;
+  
+  // Lendo todos os possíveis campos de evento
   const action = notificacao.action;
   const type = notificacao.type;
+  const topic = notificacao.tópico; // O campo em português que vimos no log
 
   // ESTE IF ACEITA TODOS OS EVENTOS DE PAGAMENTO
-  if (action === 'payment.updated' || type === 'payment' || type === 'topic_merchant_order_wh') {
+  if (action === 'payment.updated' || type === 'payment' || topic === 'pagamento' || topic === 'pedido_do_comerciante') {
     
-    // #################################################################
-    // A CORREÇÃO FINAL ESTÁ AQUI
-    // Pega o ID de 'data.id' (para testes) OU de 'id' (para PIX real)
-    // #################################################################
-    const paymentId = notificacao.data?.id || notificacao.id;
+    // Pega o ID de 'data.id' (para testes) OU de 'id' (para PIX real) OU de 'recurso'
+    const paymentId = notificacao.data?.id || notificacao.id || (notificacao.recurso ? notificacao.recurso.split('/').pop() : null);
 
     if (!paymentId) {
         console.warn('⚠️ Notificação sem "data.id" ou "id". Ignorando.');
+        return res.status(200).send('OK');
+    }
+
+    // Previne processamento duplicado se o ID não for um número (ex: '35396382602' é merchant_order_id)
+    if (isNaN(paymentId)) {
+        console.log(`ℹ️ ID de Recurso [${paymentId}] não é um ID de pagamento. Ignorando.`);
         return res.status(200).send('OK');
     }
 
@@ -115,7 +122,7 @@ app.post('/notificacao-mp', async (req, res) => {
       console.error('💥 Erro ao consultar a API do Mercado Pago:', error.message);
     }
   } else {
-    console.log(`ℹ️ Evento do tipo "${action || type}" ignorado.`);
+    console.log(`ℹ️ Evento do tipo "${action || type || topic}" ignorado.`);
   }
 
   res.status(200).send('OK');
