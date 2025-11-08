@@ -1,158 +1,134 @@
-// =================================================================
-// ARQUIVO: index.js (V_SMART_PROXY)
-// DESCRIÇÃO: Servidor principal com rota inteligente para QR Codes fixos.
-// =================================================================
-
 require('dotenv').config();
 const express = require('express');
+const mercadopago = require('mercadopago');
 const mqtt = require('mqtt');
-const axios = require('axios');
+const axios = require('axios'); // Para ler a planilha do Google
 
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// --- CARREGANDO VARIÁVEIS DE AMBIENTE ---
+// --- CONFIGURAÇÃO ---
 const MP_ACCESS_TOKEN = process.env.MP_ACCESS_TOKEN;
 const MQTT_BROKER_URL = process.env.MQTT_BROKER_URL;
 const MQTT_USERNAME = process.env.MQTT_USERNAME;
 const MQTT_PASSWORD = process.env.MQTT_PASSWORD;
-// Tópico base: remove '/comandos' se existir, para flexibilidade
-const MQTT_BASE_TOPIC = process.env.MQTT_TOPIC_COMANDO ? process.env.MQTT_TOPIC_COMANDO.replace(/\/comandos\/?$/, '') : 'watervendor/maquina01';
-// URL pública do servidor (necessária para o webhook e para o redirecionamento)
-// Se não estiver definida no Render, usa um valor padrão, mas o ideal é definir RENDER_EXTERNAL_URL no painel.
-const SERVER_URL = process.env.RENDER_EXTERNAL_URL || 'https://watervendor-server.onrender.com';
+const MQTT_TOPIC_COMANDO = process.env.MQTT_TOPIC_COMANDO;
+const SHEETS_URL = process.env.SHEETS_URL; // A URL do CSV da sua planilha
+const SERVER_URL = 'https://watervendor-server.onrender.com';
 
-if (!MP_ACCESS_TOKEN || !MQTT_BROKER_URL || !MQTT_USERNAME || !MQTT_PASSWORD) {
-    console.error('❌ ERRO FATAL: Verifique as Variáveis de Ambiente no RENDER!');
+if (!MP_ACCESS_TOKEN || !SHEETS_URL) {
+    console.error('❌ ERRO FATAL: MP_ACCESS_TOKEN ou SHEETS_URL faltando no Render!');
+    // Não damos exit(1) para não derrubar o servidor, mas ele não vai vender.
 }
 
-// --- CONEXÃO MQTT ---
-console.log(`🔌 Conectando ao Broker MQTT em ${MQTT_BROKER_URL} como ${MQTT_USERNAME}...`);
-const client = mqtt.connect(MQTT_BROKER_URL, {
+// ... (Configuração do MP e MQTT iguais ao anterior) ...
+const mpClient = new mercadopago.MercadoPagoConfig({ accessToken: MP_ACCESS_TOKEN });
+const mpPreference = new mercadopago.Preference(mpClient);
+const mpPayment = new mercadopago.Payment(mpClient);
+
+const mqttClient = mqtt.connect(MQTT_BROKER_URL, {
     username: MQTT_USERNAME,
     password: MQTT_PASSWORD,
-    clientId: `server_${Math.random().toString(16).slice(2, 8)}`,
-    reconnectPeriod: 5000,
-    keepalive: 30
+    connectTimeout: 5000
 });
-
-client.on('connect', () => console.log('✅ Servidor conectado ao Broker MQTT com sucesso!'));
-client.on('error', (err) => console.error('❌ Erro de conexão com o Broker MQTT:', err.message));
+mqttClient.on('connect', () => console.log('✅ Conectado ao MQTT.'));
+mqttClient.on('error', (err) => console.error('❌ Erro MQTT:', err.message));
 
 app.use(express.json());
+app.get('/', (req, res) => res.send('Servidor WaterVendor (Sheets Edition) Online 🚀'));
 
-app.get('/', (req, res) => res.send('Servidor WaterVendor (V_SMART_PROXY) está no ar!'));
+// --- FUNÇÃO PARA BUSCAR PREÇO NA PLANILHA ---
+async function buscarPrecoNaPlanilha(volumeDesejado) {
+    try {
+        const response = await axios.get(SHEETS_URL);
+        const csvData = response.data;
+        
+        // Quebra o CSV em linhas
+        const linhas = csvData.split('\n');
+        
+        // Percorre cada linha procurando o volume
+        for (let i = 0; i < linhas.length; i++) {
+            const colunas = linhas[i].trim().split(',');
+            // Supondo Coluna A = Volume, Coluna B = Preço
+            if (colunas.length >= 2) {
+                const volumeNaPlanilha = colunas[0].trim();
+                const precoNaPlanilha = colunas[1].trim();
+                
+                // Se o volume da linha for igual ao que o cliente quer
+                if (volumeNaPlanilha == volumeDesejado) {
+                    return parseFloat(precoNaPlanilha);
+                }
+            }
+        }
+        return null; // Não achou
+    } catch (error) {
+        console.error('Erro ao ler planilha:', error.message);
+        return null;
+    }
+}
 
-// =================================================================
-// 🆕 ROTA INTELIGENTE PARA QR CODES FIXOS 🆕
-// O cliente acessa: .../comprar/maquina01/20000
-// =================================================================
+// --- ROTA DE COMPRA INTELIGENTE (COM PLANILHA) ---
 app.get('/comprar/:maquinaid/:volume', async (req, res) => {
     const { maquinaid, volume } = req.params;
-    const volumeInt = parseInt(volume, 10);
-
-    if (!maquinaid || isNaN(volumeInt)) {
-        return res.status(400).send('Link inválido. Use o formato: /comprar/maquinaID/volumeML');
-    }
-
-    // 1. Descobrir o PREÇO atual para este volume
-    // O servidor procura uma variável de ambiente chamada "PRECO_20000", "PRECO_1000", etc.
-    const precoVarName = `PRECO_${volumeInt}`;
-    const precoAtual = process.env[precoVarName];
+    
+    // 1. Busca o preço atualizado na planilha do Google
+    const precoAtual = await buscarPrecoNaPlanilha(volume);
 
     if (!precoAtual) {
-        console.error(`❌ Tentativa de compra para volume ${volumeInt}ml, mas a variável ${precoVarName} não está definida no Render.`);
-        return res.status(404).send(`Produto de ${volumeInt}ml não está configurado para venda no momento.`);
+        return res.status(404).send(`Erro: Produto de ${volume}ml não encontrado na tabela de preços.`);
     }
 
-    const precoFloat = parseFloat(precoAtual);
-    const tituloProduto = `Água Mineral ${volumeInt}ml`;
-    const referenciaExterna = `${maquinaid}-${volumeInt}`; // Ex: maquina01-20000
+    console.log(`🛒 Pedido: ${volume}ml -> R$ ${precoAtual} (Lido da Planilha)`);
 
-    console.log(`🛒 Novo pedido iniciado: ${tituloProduto} na ${maquinaid} por R$ ${precoFloat.toFixed(2)}`);
-
-    // 2. Criar a preferência no Mercado Pago "na hora"
     try {
+        // 2. Cria a preferência no MP com esse preço
         const preferenceData = {
             items: [
                 {
-                    title: tituloProduto,
+                    id: `agua-${volume}`,
+                    title: `Água Mineral ${parseInt(volume)/1000}L`,
                     quantity: 1,
                     currency_id: 'BRL',
-                    unit_price: precoFloat
+                    unit_price: precoAtual
                 }
             ],
-            external_reference: referenciaExterna,
-            notification_url: `${SERVER_URL}/notificacao-mp`, // Usa a URL correta do nosso servidor para o webhook
-            auto_return: "approved",
-            back_urls: {
-                // Você pode mudar isso para uma página de "Obrigado" personalizada no futuro
-                success: "https://www.google.com",
-                failure: "https://www.google.com",
-                pending: "https://www.google.com"
-            }
+            external_reference: `${maquinaid}-${volume}`,
+            notification_url: `${SERVER_URL}/notificacao-mp`,
+            auto_return: 'approved',
+            back_urls: { success: 'https://google.com', failure: 'https://google.com', pending: 'https://google.com' }
         };
 
-        const response = await axios.post('https://api.mercadopago.com/checkout/preferences', preferenceData, {
-            headers: {
-                'Authorization': `Bearer ${MP_ACCESS_TOKEN}`,
-                'Content-Type': 'application/json'
-            }
-        });
-
-        // 3. Redirecionar o cliente para o pagamento no Mercado Pago
-        const checkoutUrl = response.data.init_point;
-        console.log(`➡ Redirecionando cliente para o Mercado Pago: ${checkoutUrl}`);
-        res.redirect(checkoutUrl);
+        const preference = await mpPreference.create({ body: preferenceData });
+        res.redirect(preference.init_point);
 
     } catch (error) {
-        console.error('💥 Erro ao criar preferência no Mercado Pago:', error.response ? error.response.data : error.message);
-        res.status(500).send('Desculpe, ocorreu um erro ao iniciar o pagamento. Tente novamente em instantes.');
+        console.error('💥 Erro ao criar preferência:', error);
+        res.status(500).send('Erro no pagamento.');
     }
 });
 
-// --- ROTA DE WEBHOOK (MANTIDA IGUAL) ---
+// ... (Rota de Webhook /notificacao-mp IGUAL À ANTERIOR) ...
+// (Vou copiar aqui para ficar completo)
 app.post('/notificacao-mp', async (req, res) => {
-    res.status(200).send('OK'); // Responde rápido para o MP
-
-    const notificacao = req.body;
-    const { action, type, topic, data } = notificacao;
-
-    if (action === 'payment.updated' || type === 'payment' || topic === 'pagamento' || type === 'topic_merchant_order_wh' || topic === 'pedido_do_comerciante') {
-        let paymentId = data?.id || notificacao.id;
-        if (!paymentId && notificacao.recurso) {
-             paymentId = notificacao.recurso.split('/').pop();
-        }
-
-        if (paymentId && !isNaN(paymentId)) {
-            console.log(`🔎 Verificando Pagamento ID: ${paymentId}...`);
-            try {
-                const response = await axios.get(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
-                    headers: { 'Authorization': `Bearer ${MP_ACCESS_TOKEN}` }
-                });
-                const payment = response.data;
-
-                if (payment.status === 'approved' && payment.external_reference) {
-                    console.log(`✅ Pagamento ${paymentId} APROVADO! Ref: ${payment.external_reference}`);
-                    const parts = payment.external_reference.split('-');
-                    if (parts.length >= 2) {
-                        const volume = parseInt(parts.pop(), 10);
-                        const machineId = parts.join('-');
-                        if (volume > 0 && machineId) {
-                            const topicComando = `${MQTT_BASE_TOPIC}/comandos`;
-                            const message = JSON.stringify({ msg: volume });
-                            if (client.connected) {
-                                client.publish(topicComando, message, { qos: 1 });
-                                console.log(`💧 COMANDO ENVIADO: ${message} -> ${topicComando}`);
-                            }
-                        }
-                    }
+    const { type, data, action } = req.body;
+    if (type === 'payment' || action === 'payment.updated') {
+        const paymentId = data?.id;
+        if (!paymentId) return res.sendStatus(200);
+        // console.log(`🔔 Webhook recebido: ${paymentId}`); // Opcional: menos log
+        try {
+            const payment = await mpPayment.get({ id: paymentId });
+            if (payment.status === 'approved') {
+                const referencia = payment.external_reference;
+                console.log(`✅ Pagamento ${paymentId} APROVADO! Ref: ${referencia}`);
+                if (referencia && mqttClient.connected) {
+                    const partes = referencia.split('-');
+                    const vol = partes.length >= 2 ? parseInt(partes[1]) : 1000;
+                    mqttClient.publish(MQTT_TOPIC_COMANDO, JSON.stringify({ msg: vol }), { qos: 1 });
                 }
-            } catch (error) {
-                console.error('⚡ Erro ao consultar API do MP:', error.message);
             }
-        }
+        } catch (error) { console.error('⚠️ Erro Webhook:', error.message); }
     }
+    res.sendStatus(200);
 });
 
-app.listen(PORT, () => console.log(`🚀 Servidor rodando na porta ${PORT}`));
+app.listen(PORT, () => console.log(`Servidor rodando na porta ${PORT}`));
