@@ -16,9 +16,9 @@ const NOTIFICATION_URL = 'https://watervendor-server.onrender.com/notificacao-mp
 // --- DADOS DO PRODUTO QUE QUEREMOS CRIAR ---
 // !! MODIFIQUE AQUI PARA CADA PRODUTO !!
 const produto = {
-  titulo: "Água Mineral 20 Litros",
-  preco: 1.50,
-  referencia_externa: "maquina01-20000" // Formato: maquinaID-volumeML
+  titulo: "Água Mineral 5 Litros",
+  preco: 1.01,
+  referencia_externa: "maquina01-5000" // Formato: maquinaID-volumeML
 };
 // Você pode alterar o produto acima para outros volumes, por exemplo:
 // const produto = {
